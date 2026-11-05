@@ -1,0 +1,11 @@
+---
+# cspell:ignore testdata
+EXTENDS: .megalinter-action.yml
+# Files in golang/testdata/invalid/ are broken on purpose to test the loader.
+YAML_YAMLLINT_FILTER_REGEX_EXCLUDE: "(^|/)golang/testdata/invalid/"
+YAML_PRETTIER_FILTER_REGEX_EXCLUDE: "(^|/)golang/testdata/invalid/"
+YAML_V8R_FILTER_REGEX_EXCLUDE: "(^|/)golang/testdata/invalid/"
+ANSIBLE_ANSIBLE_LINT_ARGUMENTS: >-
+  -f pep8 --force-color
+  --exclude golang/testdata/invalid/alias-bomb.yaml
+  --exclude golang/testdata/invalid/not-yaml.yaml
