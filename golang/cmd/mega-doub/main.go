@@ -46,10 +46,10 @@ func handle(ctx context.Context, inv cli.Invocation, env cli.Env) int {
 	}
 	// An explicit flag wins over the configuration, which wins over the default.
 	level, format := inv.Global.LogLevel, inv.Global.LogFormat
-	if !inv.Global.LogLevelSet && loaded.LogLevelSet {
+	if !inv.Global.LogLevelSet && loaded.HasValue("global.log_level") {
 		level = loaded.Config.Global.LogLevel.Level()
 	}
-	if !inv.Global.LogFormatSet && loaded.LogFormatSet {
+	if !inv.Global.LogFormatSet && loaded.HasValue("global.log_format") {
 		format = loaded.Config.Global.LogFormat.Format()
 	}
 	// The logger is replaced in place, so the records that cli.Execute writes after the
@@ -72,7 +72,10 @@ func logProblems(logger *slog.Logger, err error) {
 		return
 	}
 	for _, p := range cfgErr.Problems {
-		attrs := []any{"file", p.File}
+		var attrs []any
+		if p.File != "" {
+			attrs = append(attrs, "file", p.File)
+		}
 		if p.Line > 0 {
 			attrs = append(attrs, "line", p.Line, "column", p.Column)
 		}

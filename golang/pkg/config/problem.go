@@ -12,7 +12,9 @@ import (
 )
 
 // Problem is one configuration problem. Line and Column start at 1, zero means that
-// the position is unknown. Path is the key path, it is empty for now.
+// the position is unknown. Path is the path of the key or the element at the place of
+// its use, such as targets[0].sources[1].port or storage.keys["a.b"], it is empty when
+// it is unknown.
 type Problem struct {
 	File    string
 	Line    int
@@ -22,18 +24,22 @@ type Problem struct {
 }
 
 // String formats the problem as <file>:<line>:<column>: <path>: <message>, without
-// the position and the path when they are unknown.
+// the file, the position and the path when they are unknown.
 func (p Problem) String() string {
 	var b strings.Builder
 	b.WriteString(p.File)
 	if p.Line > 0 {
-		b.WriteString(":" + strconv.Itoa(p.Line) + ":" + strconv.Itoa(p.Column))
+		if p.File != "" {
+			b.WriteString(":")
+		}
+		b.WriteString(strconv.Itoa(p.Line) + ":" + strconv.Itoa(p.Column))
 	}
 	if p.Path != "" {
 		b.WriteString(": " + p.Path)
 	}
 	b.WriteString(": " + p.Message)
-	return b.String()
+	// A problem without a file and a position starts with its path or message.
+	return strings.TrimPrefix(b.String(), ": ")
 }
 
 // Error holds all problems found in one configuration file.
@@ -101,4 +107,39 @@ func loadProblem(e *yaml.LoadError) Problem {
 		msg = e.ContextMsg + ": " + msg
 	}
 	return Problem{Line: e.Mark.Line, Column: e.Mark.Column, Message: msg}
+}
+
+// keyKind tells the problems the library reports at a key from those at a value.
+type keyKind int
+
+const (
+	valueProblem keyKind = iota
+	// unknownKey is a key out of the schema, the library skips its value.
+	unknownKey
+	// repeatedKey is a key given twice, the library skips the whole mapping.
+	repeatedKey
+	// setKey is another key that names a field already set.
+	setKey
+)
+
+// Messages of the library about keys, anything else is about a value.
+var (
+	unknownField = regexp.MustCompile(`^field (.*) not found in type `)
+	setField     = regexp.MustCompile(`^field (.+) already set in type `)
+	repeated     = regexp.MustCompile(`^mapping key .+ already defined at line \d+$`)
+)
+
+// kindOf tells the kind of a problem by the message of the library and returns the
+// field the message names.
+func kindOf(msg string) (keyKind, string) {
+	if m := unknownField.FindStringSubmatch(msg); m != nil {
+		return unknownKey, m[1]
+	}
+	if m := setField.FindStringSubmatch(msg); m != nil {
+		return setKey, m[1]
+	}
+	if repeated.MatchString(msg) {
+		return repeatedKey, ""
+	}
+	return valueProblem, ""
 }

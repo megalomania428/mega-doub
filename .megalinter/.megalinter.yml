@@ -8,4 +8,7 @@ YAML_V8R_FILTER_REGEX_EXCLUDE: "(^|/)golang/testdata/invalid/"
 ANSIBLE_ANSIBLE_LINT_ARGUMENTS: >-
   -f pep8 --force-color
   --exclude golang/testdata/invalid/alias-bomb.yaml
+  --exclude golang/testdata/invalid/already-set.yaml
+  --exclude golang/testdata/invalid/duplicate-key.yaml
+  --exclude golang/testdata/invalid/duplicate-merge.yaml
   --exclude golang/testdata/invalid/not-yaml.yaml
