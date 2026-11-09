@@ -1,0 +1,10 @@
+---
+# The copy directory is inside the state directory.
+storage:
+  url: 'b2://dirs-bucket/mega-doub'
+  snapshot_id: dirs-main
+  password: 'env:MEGA_DOUB_DIRS_STORAGE_PASSWORD'
+global:
+  instance: dirs
+  copy_dir: /srv/dirs/state/copy
+  state_dir: /srv/dirs/state
