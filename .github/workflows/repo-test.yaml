@@ -1,5 +1,5 @@
 # kics-scan disable=555ab8f9-2001-455e-a077-f2d0f41e2fb9
-# cspell:ignore mktemp coverprofile covermode
+# cspell:ignore mktemp coverprofile covermode gofmt
 ---
 name: repo test
 on:
@@ -24,6 +24,22 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: golang/go.mod
+          cache: false
+      - name: go checks
+        working-directory: golang
+        run: |
+          go mod verify
+          unformatted="$(gofmt -l .)"
+          if [[ -n "${unformatted}" ]]; then
+            printf 'unformatted files:\n%s\n' "${unformatted}"
+            exit 1
+          fi
+          go build ./...
+          go vet ./...
+          go test -race ./...
   linters:
     name: linters
     timeout-minutes: 11
