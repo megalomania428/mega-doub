@@ -1,5 +1,6 @@
-# cspell:ignore pycache
+# cspell:ignore pycache doub
 /deps/
 *.pyc
 __pycache__/
 /go-lib/
+/golang/mega-doub
