@@ -59,6 +59,23 @@ A file that loads is validated next, a file that fails to load is not. The probl
 - `global.instance` matches `^[A-Za-z0-9_-]+$`, `global.parallel_targets` and `global.parallel_sources` are at least `1`, `global.progress` is `auto`, `always` or `never`, `global.timeout` is above zero; an empty string is checked like any other value.
 - `global.copy_dir` and `global.state_dir` are absolute paths that are neither equal nor inside each other. They are compared as written after cleaning, without resolving links and with letter case: `/a/copy` and `/a/copy2` pass, while `copy_dir: /` holds any `state_dir`.
 - `global.retry`: the effective `backoff_cap`, after the defaults replace the values of `0` and below, is not less than the effective `backoff_initial`, and `(backoff_cap / backoff_step + 1) * backoff_step_attempts` of the effective values with integer division fits a signed 64-bit integer; there are no other limits.
+- An empty string in a required field is reported as `required` only, without the checks of its format; an empty string in an optional field, such as `vault.address` or `vault.ca_file`, means it is not set.
+- `vault.address` and `vault.token` are required when a secret reference starts with `vault:`, except `vault.token` itself and the fields that a local target does not allow; a malformed `vault:` reference counts too. `vault.address`, when set, is an `http` or `https` URL with a host, an optional port from `1` to `65535`, an optional path `/` and without user information, query and fragment; only the first broken rule is reported, without the address. An `http` address gives the warning `vault token is sent in clear text`. `vault.token` is not a `vault:` reference, `vault.timeout` is above zero and `vault.ca_file`, when set, is an absolute path.
+- `storage.name` is not empty and not `ssh` in any letter case. `storage.url` is a URL with a scheme and a host, such as `b2://bucket/prefix` or `sftp://user@host/path`; a local path is not supported. A password in its user information, an empty one included, gives the warning `url contains a password`; the URL is never logged. `storage.snapshot_id` matches `^[A-Za-z0-9_-]+$`, `storage.password` is required, `storage.threads` is at least `1`, and every key of `storage.keys` and its value are not empty.
+- Every element of `prune.keep` is `n:m` without spaces: keep one snapshot every `n` days for the snapshots older than `m` days, `n` of `0` removes them. Both numbers fit an integer, `m` is at least `1` and strictly decreases along the list, while `n` is not ordered; an element gets at most one problem. The format is always checked, a non-empty `prune.keep` is required when `prune.enabled` is set; `prune.threads` is at least `1`.
+- `check.every` is not negative and is above zero when `check.enabled` is set; `check.test_restore_bytes` is not negative, `0` is allowed.
+
+### Secrets
+
+A secret field – `vault.token`, `storage.password`, the values of `storage.keys`, `targets[].key`, `targets[].key_passphrase`, `targets[].password` and the secret fields of the sources – holds a reference:
+
+- `plain:<value>` – the value itself;
+- `env:<NAME>` – the environment variable `NAME`;
+- `file:<absolute path>` – the content of the file without the surrounding whitespace;
+- `vault:<mount>/<path>/<key>` – the key of a secret of the Vault KV version 2 engine at `vault.address`;
+- a string without a prefix is taken as `plain:`.
+
+The values are not resolved yet.
 
 ## Exit codes
 

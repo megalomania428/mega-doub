@@ -64,3 +64,43 @@ func Test_validator_required(t *testing.T) {
 		})
 	}
 }
+
+func Test_validator_check(t *testing.T) {
+	tests := []struct {
+		name string
+		// bytes replaces check.test_restore_bytes after loading: a negative size does not
+		// load.
+		bytes Size
+		want  []Problem
+	}{
+		{
+			name:  "negative test restore bytes",
+			bytes: -1,
+			want: []Problem{{Line: 3, Column: 23, Path: "check.test_restore_bytes",
+				Message: "must not be negative"}},
+		},
+		{name: "zero test restore bytes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "main.yaml")
+			content := "---\ncheck:\n  test_restore_bytes: 0\n"
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			loaded.Config.Check.TestRestoreBytes = tt.bytes
+			v := &validator{l: loaded}
+			v.check()
+			for i := range tt.want {
+				tt.want[i].File = loaded.Path
+			}
+			if !reflect.DeepEqual(v.problems, tt.want) {
+				t.Errorf("validator.check() problems = %v, want %v", v.problems, tt.want)
+			}
+		})
+	}
+}

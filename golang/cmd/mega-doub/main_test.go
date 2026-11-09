@@ -32,8 +32,9 @@ func Test_run(t *testing.T) {
 	invalid := filepath.Join(dir, "invalid.yaml")
 	logSettings := filepath.Join(dir, "logging.yaml")
 	for path, content := range map[string]string{
-		invalid:     "---\ntargets:\n  - name: a\n    extra: 1\nglobal:\n  timeout: 30\n",
-		logSettings: "---\nglobal:\n  log_level: warn\n  log_format: json\n",
+		invalid: "---\ntargets:\n  - name: a\n    extra: 1\nglobal:\n  timeout: 30\n",
+		logSettings: "---\nglobal:\n  log_level: warn\n  log_format: json\nstorage:\n" +
+			"  url: b2://bucket/prefix\n  snapshot_id: main\n  password: env:PASSWORD\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -185,8 +186,9 @@ func Test_handle(t *testing.T) {
 		env cli.Env
 	}
 	logSettings := filepath.Join(t.TempDir(), "logging.yaml")
-	if err := os.WriteFile(logSettings, []byte("---\nglobal:\n  log_format: json\n"),
-		0o600); err != nil {
+	if err := os.WriteFile(logSettings, []byte("---\nglobal:\n  log_format: json\n"+
+		"storage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n"+
+		"  password: env:PASSWORD\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fromFile, fromFlag := &bytes.Buffer{}, &bytes.Buffer{}
