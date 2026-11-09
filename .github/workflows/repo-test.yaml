@@ -27,7 +27,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: golang/go.mod
-          cache: false
+          cache: true
+          cache-dependency-path: golang/go.sum
       - name: go checks
         working-directory: golang
         run: |
@@ -40,6 +41,27 @@ jobs:
           go build ./...
           go vet ./...
           go test -race ./...
+      - name: smoke
+        working-directory: golang
+        run: |
+          dir="${RUNNER_TEMP:-/tmp}/mega-doub-smoke"
+          mkdir -p "${dir}"
+          go build -o "${dir}/mega-doub" ./cmd/mega-doub
+          expect() {
+            local want="$1" got=0
+            shift
+            "${dir}/mega-doub" "$@" >/dev/null 2>&1 || got=$?
+            if [[ "${got}" -ne "${want}" ]]; then
+              printf 'mega-doub %s: exit code %s, want %s\n' "$*" "${got}" "${want}"
+              exit 1
+            fi
+          }
+          expect 0 --help
+          expect 0 version
+          expect 0 --version
+          expect 2 bogus
+          expect 2 backup --bogus
+          expect 3 backup
   linters:
     name: linters
     timeout-minutes: 11
