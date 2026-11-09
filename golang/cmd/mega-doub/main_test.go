@@ -77,10 +77,36 @@ func Test_run(t *testing.T) {
 			want: 2,
 			wantStderr: []string{
 				`level=ERROR msg="invalid configuration" file=` + regexp.QuoteMeta(invalid) +
-					` line=4 column=5 error="field extra not found in type config\.targetItem"$`,
+					` line=4 column=5 path=targets\[0\]\.extra ` +
+					`error="field extra not found in type config\.targetItem"$`,
 				`level=ERROR msg="invalid configuration" file=` + regexp.QuoteMeta(invalid) +
-					` line=6 column=12 error="invalid duration: want a number with a unit, ` +
-					`such as 30s"$`,
+					` line=6 column=12 path=global\.timeout error="invalid duration: want a ` +
+					`number with a unit, such as 30s"$`,
+			},
+		},
+		{
+			name: "empty configuration path",
+			args: args{ctx: t.Context(), args: []string{"config", "validate", "-c", ""}},
+			want: 2,
+			wantStderr: []string{
+				`level=ERROR msg="invalid configuration" error="configuration path is empty"$`,
+			},
+		},
+		{
+			name: "unknown keys on many levels",
+			args: args{ctx: t.Context(), args: []string{"config", "validate", "-c",
+				"../../testdata/invalid/unknown-keys-many.yaml"}},
+			want: 2,
+			wantStderr: []string{
+				`level=ERROR msg="invalid configuration" file=.*/unknown-keys-many\.yaml ` +
+					`line=2 column=1 path=bogus error="field bogus not found in type ` +
+					`config\.configFile"$`,
+				`level=ERROR msg="invalid configuration" file=.*/unknown-keys-many\.yaml ` +
+					`line=4 column=3 path=storage\.extra error="field extra not found in type ` +
+					`config\.Storage"$`,
+				`level=ERROR msg="invalid configuration" file=.*/unknown-keys-many\.yaml ` +
+					`line=8 column=5 path=targets\[0\]\.surplus error="field surplus not found ` +
+					`in type config\.targetItem"$`,
 			},
 		},
 		{
@@ -90,7 +116,8 @@ func Test_run(t *testing.T) {
 			want: 2,
 			wantStderr: []string{
 				`level=ERROR msg="invalid configuration" file=.*/bad-log-level\.yaml ` +
-					`line=3 column=14 error="invalid log level: want one of debug, info, warn, error"$`,
+					`line=3 column=14 path=global\.log_level error="invalid log level: want one of ` +
+					`debug, info, warn, error"$`,
 			},
 		},
 		{

@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"go.yaml.in/yaml/v4"
 	"go.yaml.in/yaml/v4/plugin/loaderlimits"
@@ -29,11 +30,8 @@ type Loaded struct {
 	// Path is the absolute path of the configuration file.
 	Path string
 	// Root is the document node of the file.
-	Root *yaml.Node
-	// LogLevelSet and LogFormatSet report that global.log_level and global.log_format
-	// are given with a value other than null.
-	LogLevelSet  bool
-	LogFormatSet bool
+	Root  *yaml.Node
+	index *index
 }
 
 // configFile is the root of the file, targets are decoded one by one. The sections
@@ -54,16 +52,6 @@ type targetItem struct {
 	Sources        []yaml.Node `yaml:"sources"`
 }
 
-// givenKeys captures the keys whose defaults depend on their presence.
-type givenKeys struct {
-	Global struct {
-		LogLevel  yaml.Node `yaml:"log_level"`
-		LogFormat yaml.Node `yaml:"log_format"`
-		CopyDir   yaml.Node `yaml:"copy_dir"`
-		StateDir  yaml.Node `yaml:"state_dir"`
-	} `yaml:"global"`
-}
-
 // sourceHead is the type of a source, read before its decoder is known.
 type sourceHead struct {
 	Type yaml.Node `yaml:"type"`
@@ -71,16 +59,44 @@ type sourceHead struct {
 
 // loader decodes one file and collects its problems.
 type loader struct {
-	opts     []yaml.Option
-	problems []Problem
-	seen     map[Problem]bool
+	opts   []yaml.Option
+	issues []issue
 	// fatal reports an error that stops decoding.
 	fatal bool
+	// undecoded are the paths the library has not decoded: the targets or the sources
+	// after a fatal error and the sources without a decoder.
+	undecoded map[string]bool
+	// stops are the fatal errors, the library has not decoded the rest of their element.
+	stops []issue
+}
+
+// issue is a problem with the data to find its path.
+type issue struct {
+	Problem
+	// scope is the path of the element the library decoded, the path of the problem
+	// is looked up by its position among the nodes of the element.
+	scope string
+	// lookup reports a problem of the library to find the path of, the others have
+	// their path already or have none.
+	lookup bool
+	kind   keyKind
+	// field is the name of the field the message names.
+	field string
+	// null marks a null key, it is a problem only where the library constructs the
+	// mapping that holds it.
+	null bool
+	// seen is the position in the walk where the library sees the null key.
+	seen int
 }
 
 // Load reads and decodes the configuration file at path. Every problem of the file is
 // reported at once in the returned *Error.
 func Load(path string) (*Loaded, error) {
+	if path == "" {
+		return nil, newError("", []Problem{{Message: "configuration path is empty"}})
+	}
+	// The file is read by the absolute path the problems name: a link followed by ..
+	// would lead elsewhere.
 	file, err := filepath.Abs(path)
 	if err != nil {
 		return nil, newError(path, []Problem{{Message: err.Error()}})
@@ -89,14 +105,9 @@ func Load(path string) (*Loaded, error) {
 	if err != nil {
 		return nil, newError(file, []Problem{{Message: err.Error()}})
 	}
-	l := &loader{seen: map[Problem]bool{}, opts: []yaml.Option{
-		yaml.WithKnownFields(),
-		yaml.WithUniqueKeys(),
-		yaml.WithPlugin(loaderlimits.New(loaderlimits.DepthValue(maxDepth))),
-	}}
-	loaded := l.load(data)
-	if len(l.problems) > 0 {
-		return nil, newError(file, l.problems)
+	loaded, problems := newLoader().load(data)
+	if len(problems) > 0 {
+		return nil, newError(file, problems)
 	}
 	loaded.Path = file
 	return loaded, nil
@@ -130,80 +141,104 @@ func pathError(err error) error {
 	return err
 }
 
-// add keeps the problems not seen before, a template used many times repeats them.
-func (l *loader) add(problems ...Problem) {
-	for _, p := range problems {
-		if !l.seen[p] {
-			l.seen[p] = true
-			l.problems = append(l.problems, p)
-		}
-	}
+// newLoader returns a loader with the strict options of the library.
+func newLoader() *loader {
+	return &loader{undecoded: map[string]bool{}, opts: []yaml.Option{
+		yaml.WithKnownFields(),
+		yaml.WithUniqueKeys(),
+		yaml.WithPlugin(loaderlimits.New(loaderlimits.DepthValue(maxDepth))),
+	}}
 }
 
-// addError adds the problems of a library error and reports whether there were any.
-// A single *yaml.LoadError is fatal and stops decoding.
-func (l *loader) addError(err error) bool {
-	if _, ok := err.(*yaml.LoadError); ok {
-		l.fatal = true
+// add keeps a problem of the element at scope that has its path already.
+func (l *loader) add(scope string, p Problem) {
+	l.issues = append(l.issues, issue{Problem: p, scope: scope})
+}
+
+// addError adds the problems of a library error found while decoding the element at
+// scope and reports whether there were any. A single *yaml.LoadError is fatal: it stops
+// decoding and has no path.
+func (l *loader) addError(scope string, err error) bool {
+	_, fatal := err.(*yaml.LoadError)
+	l.fatal = l.fatal || fatal
+	for _, p := range yamlProblems(err) {
+		kind, field := kindOf(p.Message)
+		is := issue{Problem: p, scope: scope, lookup: !fatal, kind: kind, field: field}
+		l.issues = append(l.issues, is)
+		if fatal {
+			l.stops = append(l.stops, is)
+		}
 	}
-	l.add(yamlProblems(err)...)
 	return err != nil
 }
 
-// load decodes the document, it returns nil when the problems stop decoding.
-func (l *loader) load(data []byte) *Loaded {
+// load decodes the document and returns its problems, the configuration is nil when
+// there are any.
+func (l *loader) load(data []byte) (*Loaded, []Problem) {
 	dec, err := yaml.NewLoader(bytes.NewReader(data), l.opts...)
 	if err != nil {
-		l.add(yamlProblems(err)...)
-		return nil
+		return nil, yamlProblems(err)
 	}
 	var doc yaml.Node
 	if err := dec.Load(&doc); err != nil {
 		if errors.Is(err, io.EOF) {
-			l.add(Problem{Message: "configuration is empty"})
-		} else {
-			l.add(yamlProblems(err)...)
+			return nil, []Problem{{Message: "configuration is empty"}}
 		}
-		return nil
+		return nil, yamlProblems(err)
 	}
 	var next yaml.Node
 	switch err := dec.Load(&next); {
 	case err == nil:
-		l.add(Problem{Line: next.Line, Column: next.Column,
-			Message: "configuration must be a single document"})
-		return nil
+		return nil, []Problem{{Line: next.Line, Column: next.Column,
+			Message: "configuration must be a single document"}}
 	case !errors.Is(err, io.EOF):
-		l.add(yamlProblems(err)...)
-		return nil
+		return nil, yamlProblems(err)
 	}
 	if len(doc.Content) == 0 || isNull(doc.Content[0]) {
-		l.add(Problem{Message: "configuration is empty"})
-		return nil
+		return nil, []Problem{{Message: "configuration is empty"}}
 	}
-	cfg := l.decode(&doc)
-	if len(l.problems) > 0 {
-		return nil
+	return l.loadDocument(&doc)
+}
+
+// loadDocument decodes a document node that is not empty and indexes it.
+func (l *loader) loadDocument(doc *yaml.Node) (*Loaded, []Problem) {
+	cfg := l.decode(doc)
+	x := newIndex(doc.Content[0])
+	loaded := &Loaded{Root: doc, index: x}
+	stops := make([]int, len(l.stops))
+	for i, s := range l.stops {
+		stops[i] = x.stopAt(s.scope, s.Line, s.Column)
 	}
-	var given givenKeys
-	// The strict decoding has expanded every alias under the limit already. This one
-	// constructs fewer values, so the alias ratio of the library is not checked again.
-	presence := yaml.WithPlugin(loaderlimits.New(loaderlimits.DepthValue(maxDepth),
-		loaderlimits.AliasNone()))
-	if l.addError(doc.Load(&given, yaml.WithUniqueKeys(false), presence)) {
-		return nil
+	for _, n := range x.nulls {
+		// The library has not seen a null key after the place a fatal error stops at.
+		seen := !underAny(n.Path, l.undecoded)
+		for k, s := range l.stops {
+			if inScope(s.scope, n.Path) && n.order >= stops[k] {
+				seen = false
+			}
+		}
+		if seen {
+			l.issues = append(l.issues, issue{Problem: n.Problem, scope: scopeOf(n.Path),
+				null: true, seen: n.order})
+		}
 	}
-	if !isGiven(&given.Global.CopyDir) {
+	// An incomplete index drops the null keys, then only its own problem is left.
+	if problems := loaded.index.assign(l.issues); len(problems) > 0 {
+		return nil, problems
+	}
+	// An incomplete index would report a present key as missing.
+	if !loaded.index.complete {
+		return nil, []Problem{{Line: 1, Column: 1,
+			Message: "configuration is too large to index"}}
+	}
+	if !loaded.HasValue("global.copy_dir") {
 		cfg.Global.CopyDir = defaultCopyDir + cfg.Global.Instance
 	}
-	if !isGiven(&given.Global.StateDir) {
+	if !loaded.HasValue("global.state_dir") {
 		cfg.Global.StateDir = defaultStateDir + cfg.Global.Instance
 	}
-	return &Loaded{
-		Config:       cfg,
-		Root:         &doc,
-		LogLevelSet:  isGiven(&given.Global.LogLevel),
-		LogFormatSet: isGiven(&given.Global.LogFormat),
-	}
+	loaded.Config = cfg
+	return loaded, nil
 }
 
 // decode fills the defaults and decodes the document over them.
@@ -216,7 +251,10 @@ func (l *loader) decode(doc *yaml.Node) *Config {
 		Prune:   &cfg.Prune,
 		Check:   &cfg.Check,
 	}
-	l.addError(doc.Load(&root, l.opts...))
+	// A fatal error may stop the library before it reads the targets at all.
+	if l.addError("", doc.Load(&root, l.opts...)) && l.fatal {
+		l.undecoded["targets"] = true
+	}
 	cfg.Templates = root.Templates
 	// An explicit null clears a list, so the default is restored.
 	if cfg.Prune.Keep == nil {
@@ -224,62 +262,82 @@ func (l *loader) decode(doc *yaml.Node) *Config {
 	}
 	cfg.Targets = make([]Target, len(root.Targets))
 	for i := range root.Targets {
+		path := "targets[" + strconv.Itoa(i) + "]"
 		if l.fatal {
-			break
+			l.undecoded[path] = true
+			continue
 		}
-		cfg.Targets[i] = l.target(&root.Targets[i])
+		cfg.Targets[i] = l.target(path, &root.Targets[i])
 	}
 	return cfg
 }
 
-func (l *loader) target(node *yaml.Node) Target {
+// target decodes the target at path.
+func (l *loader) target(path string, node *yaml.Node) Target {
 	item := targetItem{TargetSettings: defaultTargetSettings()}
-	l.addError(node.Load(&item, l.opts...))
+	if l.addError(path, node.Load(&item, l.opts...)) && l.fatal {
+		l.undecoded[path+".sources"] = true
+	}
 	if item.Auth == nil {
 		item.Auth = defaultAuth()
 	}
 	t := Target{TargetSettings: item.TargetSettings, Sources: []SourceConfig{}}
 	for i := range item.Sources {
+		scope := path + ".sources[" + strconv.Itoa(i) + "]"
 		if l.fatal {
-			break
+			l.undecoded[scope] = true
+			continue
 		}
-		if src := l.source(&item.Sources[i]); src != nil {
+		if src := l.source(scope, &item.Sources[i]); src != nil {
 			t.Sources = append(t.Sources, src)
 		}
 	}
 	return t
 }
 
-// source reads the type of a source loosely and decodes the source strictly with the
-// decoder of the type.
-func (l *loader) source(node *yaml.Node) SourceConfig {
-	var head sourceHead
-	// The strict decoding reports duplicate keys, only a fatal error or a source that
-	// is not a mapping stops here.
-	if l.addError(node.Load(&head, yaml.WithUniqueKeys(false))) {
-		return nil
-	}
-	var sourceType string
-	if isGiven(&head.Type) && l.addError(head.Type.Load(&sourceType, l.opts...)) {
-		return nil
-	}
-	if sourceType == "" {
-		l.add(Problem{Line: node.Line, Column: node.Column,
-			Message: "source type is required"})
-		return nil
-	}
-	dec, ok := decoders[sourceType]
-	if !ok {
-		l.add(Problem{Line: node.Line, Column: node.Column,
-			Message: "unknown source type"})
+// source decodes the source at path strictly with the decoder of its type.
+func (l *loader) source(path string, node *yaml.Node) SourceConfig {
+	dec := l.decoder(path, node)
+	if dec == nil {
+		l.undecoded[path] = true
 		return nil
 	}
 	src, err := dec(node, l.opts...)
-	l.addError(err)
+	l.addError(path, err)
 	if err != nil {
 		return nil
 	}
 	return src
+}
+
+// decoder reads the type of the source at path loosely and returns its decoder, nil
+// when the type has a problem.
+func (l *loader) decoder(path string, node *yaml.Node) Decoder {
+	var head sourceHead
+	// The strict decoding reports duplicate keys, only a fatal error or a source that
+	// is not a mapping stops here.
+	if l.addError(path, node.Load(&head, yaml.WithUniqueKeys(false))) {
+		return nil
+	}
+	if !isGiven(&head.Type) {
+		at := resolve(node)
+		l.add(path, Problem{Line: at.Line, Column: at.Column, Path: path,
+			Message: "source type is required"})
+		return nil
+	}
+	var sourceType string
+	if l.addError(path, head.Type.Load(&sourceType, l.opts...)) {
+		return nil
+	}
+	// An explicit '' is a type no decoder has.
+	dec, ok := decoders[sourceType]
+	if !ok {
+		at := resolve(&head.Type)
+		l.add(path, Problem{Line: at.Line, Column: at.Column, Path: path + ".type",
+			Message: "unknown source type"})
+		return nil
+	}
+	return dec
 }
 
 // isGiven reports that the key is present with a value other than null.
@@ -288,8 +346,13 @@ func isGiven(node *yaml.Node) bool {
 }
 
 func isNull(node *yaml.Node) bool {
+	return resolve(node).ShortTag() == "!!null"
+}
+
+// resolve returns the node an alias points to.
+func resolve(node *yaml.Node) *yaml.Node {
 	for node.Kind == yaml.AliasNode && node.Alias != nil {
 		node = node.Alias
 	}
-	return node.ShortTag() == "!!null"
+	return node
 }

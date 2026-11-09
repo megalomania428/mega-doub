@@ -1,0 +1,11 @@
+---
+# The template is merged into both targets, each one reports the key.
+templates:
+  base: &base
+    transport: local
+    bogus: 1
+targets:
+  - <<: *base
+    name: one
+  - <<: *base
+    name: two

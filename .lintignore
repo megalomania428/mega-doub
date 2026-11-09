@@ -1,1 +1,4 @@
+/golang/testdata/invalid/already-set.yaml
+/golang/testdata/invalid/duplicate-key.yaml
+/golang/testdata/invalid/duplicate-merge.yaml
 /golang/testdata/invalid/not-yaml.yaml
