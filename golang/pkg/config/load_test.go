@@ -1,4 +1,6 @@
-package config
+// cspell:ignore testsource
+
+package config_test
 
 import (
 	"errors"
@@ -11,54 +13,31 @@ import (
 
 	"go.yaml.in/yaml/v4"
 
+	"github.com/megalomania428/mega-doub/internal/testsource"
+	"github.com/megalomania428/mega-doub/pkg/config"
 	"github.com/megalomania428/mega-doub/pkg/secret"
 )
 
-// testSource is the source type the tests register.
-type testSource struct {
-	SourceBase `yaml:",inline"`
-	Path       string `yaml:"path"`
-}
-
-// Validate reports a missing id and a relative path, problems about the whole source
-// and about one of its keys.
-func (s testSource) Validate() []Problem {
-	var problems []Problem
-	if s.ID == "" {
-		problems = append(problems, Problem{Message: "id is required"})
-	}
-	if !strings.HasPrefix(s.Path, "/") {
-		problems = append(problems, Problem{Path: "path", Message: "path must be absolute"})
-	}
-	return problems
-}
-
 func init() {
-	Register("test", func(node *yaml.Node, opts ...yaml.Option) (SourceConfig, error) {
-		var s testSource
-		if err := node.Load(&s, opts...); err != nil {
-			return nil, err
-		}
-		return s, nil
-	})
+	testsource.Register()
 }
 
-func defaultTarget(name string) Target {
-	return Target{
-		TargetSettings: TargetSettings{
+func defaultTarget(name string) config.Target {
+	return config.Target{
+		TargetSettings: config.TargetSettings{
 			Name:           name,
 			Port:           22,
 			Auth:           []string{"agent"},
-			ConnectTimeout: Duration(10 * time.Second),
+			ConnectTimeout: config.Duration(10 * time.Second),
 		},
-		Sources: []SourceConfig{},
+		Sources: []config.SourceConfig{},
 	}
 }
 
 // defaults returns the configuration of an empty mapping with the given targets.
-func defaults(targets ...Target) *Config {
-	return &Config{
-		Global: Global{
+func defaults(targets ...config.Target) *config.Config {
+	return &config.Config{
+		Global: config.Global{
 			Instance:        "main",
 			CopyDir:         "/var/lib/mega-doub/copy/main",
 			StateDir:        "/var/lib/mega-doub/state/main",
@@ -67,20 +46,21 @@ func defaults(targets ...Target) *Config {
 			LogLevel:        "info",
 			LogFormat:       "text",
 			Progress:        "auto",
-			Timeout:         Duration(12 * time.Hour),
+			Timeout:         config.Duration(12 * time.Hour),
 		},
-		Vault:   Vault{Timeout: Duration(30 * time.Second)},
-		Storage: Storage{Name: "default", Threads: 4, Tag: "mega-doub"},
-		Prune:   Prune{Keep: []string{}, Threads: 4},
-		Check:   Check{Every: Duration(168 * time.Hour), TestRestoreBytes: 256 << 20},
-		Targets: append([]Target{}, targets...),
+		Vault:   config.Vault{Timeout: config.Duration(30 * time.Second)},
+		Storage: config.Storage{Name: "default", Threads: 4, Tag: "mega-doub"},
+		Prune:   config.Prune{Keep: []string{}, Threads: 4},
+		Check: config.Check{Every: config.Duration(168 * time.Hour),
+			TestRestoreBytes: 256 << 20},
+		Targets: append([]config.Target{}, targets...),
 	}
 }
 
-func exampleConfig() *Config {
+func exampleConfig() *config.Config {
 	cfg := defaults(
-		Target{
-			TargetSettings: TargetSettings{
+		config.Target{
+			TargetSettings: config.TargetSettings{
 				Name:           "db01",
 				Transport:      "ssh",
 				Host:           "db01.example.invalid",
@@ -89,9 +69,9 @@ func exampleConfig() *Config {
 				Auth:           []string{"agent", "key"},
 				Key:            "env:MEGA_DOUB_EXAMPLE_SSH_KEY",
 				KnownHosts:     "/etc/ssh/ssh_known_hosts",
-				ConnectTimeout: Duration(10 * time.Second),
+				ConnectTimeout: config.Duration(10 * time.Second),
 			},
-			Sources: []SourceConfig{},
+			Sources: []config.SourceConfig{},
 		},
 		defaultTarget("local"),
 	)
@@ -109,9 +89,9 @@ func exampleConfig() *Config {
 	return cfg
 }
 
-func fullConfig() *Config {
-	return &Config{
-		Global: Global{
+func fullConfig() *config.Config {
+	return &config.Config{
+		Global: config.Global{
 			Instance:        "full",
 			CopyDir:         "/srv/mega-doub/copy",
 			StateDir:        "/srv/mega-doub/state",
@@ -120,22 +100,22 @@ func fullConfig() *Config {
 			LogLevel:        "debug",
 			LogFormat:       "json",
 			Progress:        "never",
-			Timeout:         Duration(6*time.Hour + 30*time.Minute),
-			Retry: Retry{
-				MaxRetriesTime:      Duration(2 * time.Minute),
-				BackoffInitial:      Duration(2 * time.Second),
-				BackoffStep:         Duration(3 * time.Second),
+			Timeout:         config.Duration(6*time.Hour + 30*time.Minute),
+			Retry: config.Retry{
+				MaxRetriesTime:      config.Duration(2 * time.Minute),
+				BackoffInitial:      config.Duration(2 * time.Second),
+				BackoffStep:         config.Duration(3 * time.Second),
 				BackoffStepAttempts: 5,
-				BackoffCap:          Duration(30 * time.Second),
+				BackoffCap:          config.Duration(30 * time.Second),
 			},
 		},
-		Vault: Vault{
+		Vault: config.Vault{
 			Address: "https://vault.example.invalid:8200",
 			Token:   "file:/run/secrets/fake-vault-token",
-			Timeout: Duration(45 * time.Second),
+			Timeout: config.Duration(45 * time.Second),
 			CAFile:  "/usr/local/share/ca-certificates/fake-vault.crt",
 		},
-		Storage: Storage{
+		Storage: config.Storage{
 			Name:       "offsite",
 			URL:        "b2://fake-bucket/full",
 			SnapshotID: "full-main",
@@ -147,12 +127,12 @@ func fullConfig() *Config {
 				"b2_key": "plain:fake-b2-key",
 			},
 		},
-		Prune: Prune{Enabled: true, Keep: []string{"0:365", "7:30", "1:7"}, Threads: 2,
+		Prune: config.Prune{Enabled: true, Keep: []string{"0:365", "7:30", "1:7"}, Threads: 2,
 			Exclusive: true},
-		Check: Check{Enabled: true, Every: Duration(24 * time.Hour), Chunks: true,
+		Check: config.Check{Enabled: true, Every: config.Duration(24 * time.Hour), Chunks: true,
 			Files: true, TestRestore: true, TestRestoreBytes: 1536 << 10},
-		Targets: []Target{{
-			TargetSettings: TargetSettings{
+		Targets: []config.Target{{
+			TargetSettings: config.TargetSettings{
 				Name:           "db02",
 				Transport:      "ssh",
 				Host:           "db02.example.invalid",
@@ -163,12 +143,13 @@ func fullConfig() *Config {
 				KeyPassphrase:  "env:MEGA_DOUB_FULL_PASSPHRASE",
 				Password:       "plain:fake-password",
 				KnownHosts:     "/etc/ssh/fake_known_hosts",
-				ConnectTimeout: Duration(15 * time.Second),
+				ConnectTimeout: config.Duration(15 * time.Second),
 				Sudo:           true,
 			},
-			Sources: []SourceConfig{testSource{
-				SourceBase: SourceBase{Type: "test", ID: "test-main"},
+			Sources: []config.SourceConfig{testsource.Source{
+				SourceBase: config.SourceBase{Type: "test", ID: "test-main"},
 				Path:       "/srv/data",
+				Token:      "plain:fake-source-token",
 			}},
 		}},
 	}
@@ -181,9 +162,9 @@ func sized(n int) string {
 }
 
 func TestLoad(t *testing.T) {
-	zeros := defaults(Target{
-		TargetSettings: TargetSettings{Auth: []string{}},
-		Sources:        []SourceConfig{},
+	zeros := defaults(config.Target{
+		TargetSettings: config.TargetSettings{Auth: []string{}},
+		Sources:        []config.SourceConfig{},
 	})
 	zeros.Global.Instance = ""
 	zeros.Global.CopyDir = ""
@@ -233,7 +214,7 @@ func TestLoad(t *testing.T) {
 		args args
 		// content is written to a temporary file used instead of args.path.
 		content       string
-		want          *Config
+		want          *config.Config
 		wantLevelSet  bool
 		wantFormatSet bool
 		// wantErr holds a fragment of each line of the error, {file} is the file path.
@@ -1118,7 +1099,7 @@ func TestLoad(t *testing.T) {
 				}
 			}
 			start := time.Now()
-			got, err := Load(path)
+			got, err := config.Load(path)
 			if tt.quick && time.Since(start) > time.Second {
 				t.Errorf("Load() took %v, want less than a second", time.Since(start))
 			}
@@ -1126,7 +1107,7 @@ func TestLoad(t *testing.T) {
 				t.Fatalf("Load() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr != nil {
-				var cfgErr *Error
+				var cfgErr *config.Error
 				if !errors.As(err, &cfgErr) {
 					t.Fatalf("Load() error type = %T, want *Error", err)
 				}
@@ -1164,85 +1145,6 @@ func TestLoad(t *testing.T) {
 			got.Config.Templates = yaml.Node{}
 			if !reflect.DeepEqual(got.Config, tt.want) {
 				t.Errorf("Load() Config = %+v, want %+v", got.Config, tt.want)
-			}
-		})
-	}
-}
-
-func Test_loader_loadDocument(t *testing.T) {
-	// A list has no repeated keys to check, so the library decodes a long one quickly.
-	keep := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-	for range indexBudget {
-		keep.Content = append(keep.Content, scalar("1:7"))
-	}
-	large := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
-		Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{scalar("prune"), {
-			Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{scalar("keep"), keep},
-		}},
-	}}}
-	// The unknown key is indexed before the budget runs out, still it gets no path, and
-	// the null key in its value is not reported.
-	bogus := scalar("bogus")
-	bogus.Line, bogus.Column = 2, 1
-	null := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null", Line: 3,
-		Column: 3}
-	exhausted := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
-		Kind: yaml.MappingNode, Tag: "!!map", Content: append([]*yaml.Node{bogus, {
-			Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{null, scalar("1")},
-		}}, large.Content[0].Content...),
-	}}}
-	// The null key is the only problem, and an incomplete index drops it.
-	nullOnly := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
-		Kind: yaml.MappingNode, Tag: "!!map", Content: append([]*yaml.Node{null,
-			scalar("1")}, large.Content[0].Content...),
-	}}}
-	small := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
-		Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{scalar("storage"), {
-			Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{scalar("keys"),
-				fanOut(1, 0)},
-		}},
-	}}}
-	type args struct {
-		doc *yaml.Node
-	}
-	tests := []struct {
-		name string
-		args args
-		// wantLoaded reports a loaded configuration.
-		wantLoaded bool
-		want1      []Problem
-	}{
-		{
-			name:  "too large to index",
-			args:  args{doc: large},
-			want1: []Problem{{Line: 1, Column: 1, Message: "configuration is too large to index"}},
-		},
-		{
-			name: "no paths over the budget",
-			args: args{doc: exhausted},
-			want1: []Problem{{Line: 2, Column: 1,
-				Message: "field bogus not found in type config.configFile"}},
-		},
-		{
-			name:  "only null keys over the budget",
-			args:  args{doc: nullOnly},
-			want1: []Problem{{Line: 1, Column: 1, Message: "configuration is too large to index"}},
-		},
-		{
-			name:       "in the budget",
-			args:       args{doc: small},
-			wantLoaded: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := newLoader().loadDocument(tt.args.doc)
-			if (got != nil) != tt.wantLoaded {
-				t.Errorf("loader.loadDocument() got = %v, want a configuration %v", got,
-					tt.wantLoaded)
-			}
-			if !reflect.DeepEqual(got1, tt.want1) {
-				t.Errorf("loader.loadDocument() got1 = %v, want %v", got1, tt.want1)
 			}
 		})
 	}

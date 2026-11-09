@@ -65,3 +65,5 @@ targets:
       - type: test
         id: test-main
         path: /srv/data
+        # checkov:skip=CKV_SECRET_6: the secret reference is fake
+        token: 'plain:fake-source-token'
