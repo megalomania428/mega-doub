@@ -1,5 +1,5 @@
 # kics-scan disable=555ab8f9-2001-455e-a077-f2d0f41e2fb9
-# cspell:ignore mktemp coverprofile covermode gofmt
+# cspell:ignore mktemp coverprofile covermode gofmt testdata
 ---
 name: repo test
 on:
@@ -61,7 +61,9 @@ jobs:
           expect 0 --version
           expect 2 bogus
           expect 2 backup --bogus
-          expect 3 backup
+          expect 0 config validate -c testdata/example.yaml
+          expect 2 config validate -c testdata/invalid/unknown-key-root.yaml
+          expect 3 backup -c testdata/example.yaml
   linters:
     name: linters
     timeout-minutes: 11

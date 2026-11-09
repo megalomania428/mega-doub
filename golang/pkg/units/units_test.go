@@ -45,3 +45,34 @@ func TestParseSize(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatSize(t *testing.T) {
+	type args struct {
+		n int64
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{name: "zero", args: args{n: 0}, want: "0"},
+		{name: "bytes", args: args{n: 100}, want: "100"},
+		{name: "not a whole K", args: args{n: 1025}, want: "1025"},
+		{name: "K suffix", args: args{n: 1536 << 10}, want: "1536K"},
+		{name: "M suffix", args: args{n: 256 << 20}, want: "256M"},
+		{name: "G suffix", args: args{n: 4 << 30}, want: "4G"},
+		{name: "T suffix", args: args{n: 8388607 << 40}, want: "8388607T"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatSize(tt.args.n)
+			if got != tt.want {
+				t.Errorf("FormatSize() = %q, want %q", got, tt.want)
+			}
+			back, err := ParseSize(got)
+			if err != nil || back != tt.args.n {
+				t.Errorf("ParseSize(%q) = %d, %v, want %d", got, back, err, tt.args.n)
+			}
+		})
+	}
+}
