@@ -245,7 +245,7 @@ func TestValidate(t *testing.T) {
 		{name: "example sections", path: "../../testdata/example.yaml", sections: ownSections},
 		{
 			name: "full sections", path: "../../testdata/full.yaml", sections: ownSections,
-			warnings: []want{{"storage.url", 29, 8, "url contains a password"}},
+			warnings: []want{{"storage.url", 30, 8, "url contains a password"}},
 			hidden:   "fake-url-password",
 		},
 		{
@@ -611,8 +611,8 @@ func TestValidate(t *testing.T) {
 		{
 			name: "full targets", path: "../../testdata/full.yaml", all: true,
 			warnings: []want{
-				{"storage.url", 29, 8, "url contains a password"},
-				{"targets[0].password", 60, 15, "value without prefix is treated as plain"},
+				{"storage.url", 30, 8, "url contains a password"},
+				{"targets[0].password", 61, 15, "value without prefix is treated as plain"},
 			},
 			hidden: "fake-",
 		},

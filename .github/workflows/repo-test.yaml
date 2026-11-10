@@ -63,6 +63,8 @@ jobs:
           expect 2 backup --bogus
           expect 0 config validate -c testdata/example.yaml
           expect 2 config validate -c testdata/invalid/unknown-key-root.yaml
+          expect 0 config show -c testdata/example.yaml
+          expect 0 backup --dry-run -c testdata/example.yaml
           expect 3 backup -c testdata/example.yaml
   linters:
     name: linters

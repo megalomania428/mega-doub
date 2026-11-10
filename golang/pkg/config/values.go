@@ -54,12 +54,9 @@ func (s *Size) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// MarshalYAML writes the size with units.FormatSize, a size without a suffix is an
-// integer.
+// MarshalYAML writes the size as the string of units.FormatSize, so a size without a
+// suffix, such as '100', is quoted and is read back the same way.
 func (s Size) MarshalYAML() (any, error) {
-	if s == 0 || s%1024 != 0 {
-		return int64(s), nil
-	}
 	return units.FormatSize(int64(s)), nil
 }
 

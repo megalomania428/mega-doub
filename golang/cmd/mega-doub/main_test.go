@@ -5,16 +5,61 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/megalomania428/mega-doub/internal/cli"
-	"github.com/megalomania428/mega-doub/pkg/logging"
 )
+
+func textHandler(w io.Writer, o *slog.HandlerOptions) slog.Handler {
+	return slog.NewTextHandler(w, o)
+}
+
+func jsonHandler(w io.Writer, o *slog.HandlerOptions) slog.Handler {
+	return slog.NewJSONHandler(w, o)
+}
+
+// slogPath returns the pattern of the value v of a path field as the text handler of
+// slog writes it, with the quotes and the escapes that it adds when needed.
+func slogPath(t *testing.T, v string) string {
+	t.Helper()
+	return slogValue(t, v, "k=", "\n", textHandler)
+}
+
+// slogJSONPath returns the pattern of the value v of a path field as the JSON handler of
+// slog writes it, with the quotes.
+func slogJSONPath(t *testing.T, v string) string {
+	t.Helper()
+	return slogValue(t, v, `{"k":`, "}\n", jsonHandler)
+}
+
+// slogValue returns the pattern of the field k=v written by the handler that newHandler
+// makes, without prefix and suffix.
+func slogValue(t *testing.T, v, prefix, suffix string,
+	newHandler func(io.Writer, *slog.HandlerOptions) slog.Handler) string {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	drop := func(groups []string, a slog.Attr) slog.Attr {
+		if len(groups) == 0 && (a.Key == slog.TimeKey || a.Key == slog.LevelKey ||
+			a.Key == slog.MessageKey) {
+			return slog.Attr{}
+		}
+		return a
+	}
+	slog.New(newHandler(buf, &slog.HandlerOptions{ReplaceAttr: drop})).Info("", "k", v)
+	got, ok := strings.CutPrefix(buf.String(), prefix)
+	if !ok {
+		t.Fatalf("slog wrote %q, want the prefix %q", buf.String(), prefix)
+	}
+	if got, ok = strings.CutSuffix(got, suffix); !ok {
+		t.Fatalf("slog wrote %q, want the suffix %q", buf.String(), suffix)
+	}
+	return regexp.QuoteMeta(got)
+}
 
 func Test_run(t *testing.T) {
 	type args struct {
@@ -46,30 +91,61 @@ func Test_run(t *testing.T) {
 	}
 	// exampleWarnings are the warning records of the targets of example.yaml.
 	exampleWarnings := []string{
-		`level=WARN msg="configuration warning" file=` + regexp.QuoteMeta(examplePath) +
+		`level=WARN msg="configuration warning" file=` + slogPath(t, examplePath) +
 			` line=26 column=5 path=targets\[0\] warning="target \\"db01\\" has no sources"$`,
-		`level=WARN msg="configuration warning" file=` + regexp.QuoteMeta(examplePath) +
+		`level=WARN msg="configuration warning" file=` + slogPath(t, examplePath) +
 			` line=32 column=5 path=targets\[1\] warning="target \\"local\\" has no sources"$`,
 	}
-	tests := []struct {
+	// backup is the pattern of the command record of backup on example.yaml.
+	backup := func(dryRun bool) string {
+		return `level=INFO msg=command command=backup config=` + slogPath(t, examplePath) +
+			` dry_run=` + strconv.FormatBool(dryRun) +
+			` log_level=info log_format=text no_progress=false$`
+	}
+	// shown returns the stdout of config show on the configuration file.
+	shown := func(t *testing.T, path string) string {
+		t.Helper()
+		stdout := &bytes.Buffer{}
+		if got := run(t.Context(), []string{"config", "show", "-c", path}, stdout,
+			io.Discard); got != 0 {
+			t.Fatalf("run() config show = %v, want 0", got)
+		}
+		return stdout.String()
+	}
+	type test struct {
 		name string
 		args args
 		want int
 		// json selects the JSON log format for the records in wantStderr.
-		json       bool
-		want1      string
+		json bool
+		// show is the configuration file whose config show output is the expected
+		// stdout, empty for no output.
+		show       string
 		wantStderr []string
-	}{
+	}
+	tests := []test{
 		{
 			name: "backup",
 			args: args{ctx: t.Context(), args: []string{"backup", "-c", example}},
 			want: 3,
+			show: example,
 			wantStderr: []string{
 				exampleWarnings[0],
 				exampleWarnings[1],
-				`level=INFO msg=command command=backup ` +
-					`config=` + regexp.QuoteMeta(examplePath) + ` dry_run=false$`,
+				backup(false),
 				`level=ERROR msg="command is not implemented yet" command=backup$`,
+			},
+		},
+		{
+			name: "backup dry run",
+			args: args{ctx: t.Context(), args: []string{"backup", "--dry-run", "-c", example}},
+			want: 0,
+			show: example,
+			wantStderr: []string{
+				exampleWarnings[0],
+				exampleWarnings[1],
+				backup(true),
+				`level=INFO msg="dry run, nothing to do" command=backup$`,
 			},
 		},
 		{
@@ -80,7 +156,7 @@ func Test_run(t *testing.T) {
 				exampleWarnings[0],
 				exampleWarnings[1],
 				`level=INFO msg="configuration is valid" config=` +
-					regexp.QuoteMeta(examplePath) + `$`,
+					slogPath(t, examplePath) + `$`,
 			},
 		},
 		{
@@ -88,10 +164,10 @@ func Test_run(t *testing.T) {
 			args: args{ctx: t.Context(), args: []string{"config", "validate", "-c", invalid}},
 			want: 2,
 			wantStderr: []string{
-				`level=ERROR msg="invalid configuration" file=` + regexp.QuoteMeta(invalid) +
+				`level=ERROR msg="invalid configuration" file=` + slogPath(t, invalid) +
 					` line=4 column=5 path=targets\[0\]\.extra ` +
 					`error="field extra not found in type config\.targetItem"$`,
-				`level=ERROR msg="invalid configuration" file=` + regexp.QuoteMeta(invalid) +
+				`level=ERROR msg="invalid configuration" file=` + slogPath(t, invalid) +
 					` line=6 column=12 path=global\.timeout error="invalid duration: want a ` +
 					`number with a unit, such as 30s"$`,
 			},
@@ -137,9 +213,10 @@ func Test_run(t *testing.T) {
 			args: args{ctx: t.Context(), args: []string{"backup", "-c", logSettings}},
 			want: 3,
 			json: true,
+			show: logSettings,
 			wantStderr: []string{
-				`"level":"WARN","msg":"configuration warning","file":"` +
-					regexp.QuoteMeta(logSettings) + `","line":1,"column":1,"path":"targets",` +
+				`"level":"WARN","msg":"configuration warning","file":` +
+					slogJSONPath(t, logSettings) + `,"line":1,"column":1,"path":"targets",` +
 					`"warning":"no targets configured"\}$`,
 				`"level":"ERROR","msg":"command is not implemented yet","command":"backup"\}$`,
 			},
@@ -149,11 +226,12 @@ func Test_run(t *testing.T) {
 			args: args{ctx: t.Context(), args: []string{"backup", "-c", logSettings,
 				"--log-level", "info", "--log-format", "text"}},
 			want: 3,
+			show: logSettings,
 			wantStderr: []string{
-				`level=WARN msg="configuration warning" file=` + regexp.QuoteMeta(logSettings) +
+				`level=WARN msg="configuration warning" file=` + slogPath(t, logSettings) +
 					` line=1 column=1 path=targets warning="no targets configured"$`,
-				`level=INFO msg=command command=backup config=` + regexp.QuoteMeta(logSettings) +
-					` dry_run=false$`,
+				`level=INFO msg=command command=backup config=` + slogPath(t, logSettings) +
+					` dry_run=false log_level=info log_format=text no_progress=false$`,
 				`level=ERROR msg="command is not implemented yet" command=backup$`,
 			},
 		},
@@ -166,6 +244,19 @@ func Test_run(t *testing.T) {
 			},
 		},
 	}
+	// A canceled context gives 4 and one interrupted record for every command, a dry run
+	// that succeeds included.
+	for _, command := range [][]string{{"backup", "--dry-run"}, {"prune"}, {"check"},
+		{"verify"}, {"list"}, {"config", "validate"}, {"config", "show"}} {
+		tests = append(tests, test{
+			name: "canceled context of " + strings.Join(command, " "),
+			args: args{ctx: canceled, args: append(command, "-c", example)},
+			want: 4,
+			wantStderr: []string{
+				`level=ERROR msg=interrupted error="context canceled"$`,
+			},
+		})
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in2 := &bytes.Buffer{}
@@ -173,8 +264,12 @@ func Test_run(t *testing.T) {
 			if got := run(tt.args.ctx, tt.args.args, in2, stderr); got != tt.want {
 				t.Errorf("run() = %v, want %v", got, tt.want)
 			}
-			if got1 := in2.String(); got1 != tt.want1 {
-				t.Errorf("run() stdout = %q, want %q", got1, tt.want1)
+			want1 := ""
+			if tt.show != "" {
+				want1 = shown(t, tt.show)
+			}
+			if got1 := in2.String(); got1 != want1 {
+				t.Errorf("run() stdout = %q, want %q", got1, want1)
 			}
 			gotStderr := stderr.String()
 			lines := strings.Split(strings.TrimSuffix(gotStderr, "\n"), "\n")
@@ -190,62 +285,6 @@ func Test_run(t *testing.T) {
 				if record := regexp.MustCompile(prefix + pattern); !record.MatchString(lines[i]) {
 					t.Errorf("run() stderr record %q, want a match for %q", lines[i], record)
 				}
-			}
-		})
-	}
-}
-
-func Test_handle(t *testing.T) {
-	type args struct {
-		ctx context.Context
-		inv cli.Invocation
-		env cli.Env
-	}
-	logSettings := filepath.Join(t.TempDir(), "logging.yaml")
-	if err := os.WriteFile(logSettings, []byte("---\nglobal:\n  log_format: json\n"+
-		"storage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n"+
-		"  password: env:PASSWORD\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fromFile, fromFlag := &bytes.Buffer{}, &bytes.Buffer{}
-	tests := []struct {
-		name   string
-		args   args
-		want   int
-		stderr *bytes.Buffer
-		// wantRecord matches the record that the caller writes with its logger after the
-		// handler, as cli.Execute does on an interruption.
-		wantRecord string
-	}{
-		{
-			name: "format from the configuration",
-			args: args{ctx: t.Context(), inv: cli.Invocation{Command: "config validate",
-				Global: cli.Global{Config: logSettings}}, env: cli.Env{Stderr: fromFile,
-				Logger: logging.New(fromFile, slog.LevelInfo, logging.FormatText)}},
-			want:       0,
-			stderr:     fromFile,
-			wantRecord: `^\{"time":"[^"]+","level":"ERROR","msg":"interrupted"`,
-		},
-		{
-			name: "format from the flag",
-			args: args{ctx: t.Context(), inv: cli.Invocation{Command: "config validate",
-				Global: cli.Global{Config: logSettings, LogFormat: logging.FormatText,
-					LogFormatSet: true}}, env: cli.Env{Stderr: fromFlag,
-				Logger: logging.New(fromFlag, slog.LevelInfo, logging.FormatText)}},
-			want:       0,
-			stderr:     fromFlag,
-			wantRecord: `^time=\S+ level=ERROR msg=interrupted`,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := handle(tt.args.ctx, tt.args.inv, tt.args.env); got != tt.want {
-				t.Errorf("handle() = %v, want %v", got, tt.want)
-			}
-			tt.args.env.Logger.Error("interrupted", "error", context.Canceled)
-			lines := strings.Split(strings.TrimSuffix(tt.stderr.String(), "\n"), "\n")
-			if last := lines[len(lines)-1]; !regexp.MustCompile(tt.wantRecord).MatchString(last) {
-				t.Errorf("handle() caller record %q, want a match for %q", last, tt.wantRecord)
 			}
 		})
 	}

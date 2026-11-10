@@ -124,7 +124,9 @@ func TestExecute(t *testing.T) {
 			args: args{args: []string{"check", "--files", "--chunks"}},
 			want: model.ExitStorage,
 			wantInv: &Invocation{
-				Command: "check", Global: defaults, Check: Check{Files: true, Chunks: true},
+				Command: "check",
+				Global:  defaults,
+				Check:   Check{Files: true, FilesSet: true, Chunks: true, ChunksSet: true},
 			},
 			records: 1,
 		},
