@@ -73,6 +73,8 @@ func TestValidate(t *testing.T) {
 		warnings []want
 		// hidden is a value that no compared message contains.
 		hidden string
+		// all compares every problem and every warning, sections are left unused.
+		all bool
 	}{
 		{name: "example", path: "../../testdata/example.yaml"},
 		{name: "full", path: "../../testdata/full.yaml"},
@@ -599,6 +601,168 @@ func TestValidate(t *testing.T) {
 			content:  base + "check:\n  every: 0\n",
 			sections: ownSections,
 		},
+		{
+			name: "example targets", path: "../../testdata/example.yaml", all: true,
+			warnings: []want{
+				{"targets[0]", 26, 5, `target "db01" has no sources`},
+				{"targets[1]", 32, 5, `target "local" has no sources`},
+			},
+		},
+		{
+			name: "full targets", path: "../../testdata/full.yaml", all: true,
+			warnings: []want{
+				{"storage.url", 29, 8, "url contains a password"},
+				{"targets[0].password", 60, 15, "value without prefix is treated as plain"},
+			},
+			hidden: "fake-",
+		},
+		{
+			name: "target duplicate", path: invalid + "target-duplicate.yaml", all: true,
+			want: []want{
+				{"targets[0].name", 8, 12, `"." must match ^[A-Za-z0-9_][A-Za-z0-9_.-]*$`},
+				{"targets[1].name", 9, 12, `".." must match`},
+				{"targets[2].name", 10, 12, `".hidden" must match`},
+				{"targets[3].name", 11, 12, `"-x" must match`},
+				{"targets[7].name", 15, 6, `"db" is not unique`},
+				{"targets[8].name", 16, 6, `"db" is not unique`},
+				{"targets[9].name", 17, 12, "required"},
+				{"targets[10].name", 18, 12, "required"},
+				{"targets[11].name", 19, 12, "required"},
+			},
+		},
+		{
+			name: "target ssh", path: invalid + "target-ssh.yaml", all: true,
+			want: []want{
+				{"targets[1].port", 6, 11, "must be from 1 to 65535"},
+				{"targets[0].host", 12, 5, "required"},
+				{"targets[0].user", 12, 5, "required"},
+				{"targets[0].auth", 14, 11, "must not be empty"},
+				{"targets[0].known_hosts", 16, 18,
+					`"etc/ssh/known_hosts" must be an absolute path`},
+				{"targets[0].connect_timeout", 17, 22, "must be greater than zero"},
+				{"targets[1].key", 18, 5, "required"},
+				{"targets[1].auth[2]", 23, 31, `"otp" must be one of agent, key, password`},
+				{"targets[1].auth[3]", 23, 38, `"key" is not unique`},
+				{"targets[1].auth[4]", 23, 45, `"otp" must be one of agent, key, password`},
+				{"targets[1].auth[4]", 23, 45, `"otp" is not unique`},
+				{"targets[1].password", 24, 15, "required"},
+				{"targets[2].known_hosts", 26, 5, "required"},
+				{"targets[2].key_passphrase", 30, 5, "must not be set without key in auth"},
+				{"targets[3].transport", 31, 28, `"ftp" must be one of local, ssh`},
+				{"targets[4].transport", 32, 5, "required"},
+			},
+			warnings: []want{
+				{"targets[0]", 12, 5, `target "bare" has no sources`},
+				{"targets[1]", 18, 5, `target "methods" has no sources`},
+				{"targets[2]", 26, 5, `target "passphrase" has no sources`},
+				{"targets[3]", 31, 5, `target "ftp" has no sources`},
+				{"targets[4]", 32, 5, `target "none" has no sources`},
+			},
+		},
+		{
+			// The secret syntax of the forbidden fields is not checked.
+			name: "target local", path: invalid + "target-local.yaml", all: true,
+			want: []want{
+				{"targets[0].host", 5, 5, "must not be set for a local target"},
+				{"targets[0].port", 6, 5, "must not be set for a local target"},
+				{"targets[0].auth", 7, 5, "must not be set for a local target"},
+				{"targets[0].key", 16, 5, "must not be set for a local target"},
+				{"targets[0].key_passphrase", 17, 5, "must not be set for a local target"},
+				{"targets[2].user", 25, 5, "must not be set for a local target"},
+				{"targets[2].password", 26, 5, "must not be set for a local target"},
+				{"targets[2].known_hosts", 27, 5, "must not be set for a local target"},
+				{"targets[2].connect_timeout", 28, 5, "must not be set for a local target"},
+			},
+		},
+		{
+			// The problems of the source type join the result, an empty id gives one.
+			name: "source duplicate", path: invalid + "source-duplicate.yaml", all: true,
+			want: []want{
+				{"targets[0].sources[0].id", 11, 26, `".." must match`},
+				{"targets[0].sources[1].id", 12, 26, `"-x" must match`},
+				{"targets[0].sources[3].id", 14, 22, `"app" is not unique`},
+				{"targets[0].sources[4].id", 15, 22, `"app" is not unique`},
+				{"targets[0].sources[5]", 16, 9, "id is required"},
+				{"targets[0].sources[5].id", 16, 26, "required"},
+				{"targets[0].sources[6].path", 17, 37, "path must be absolute"},
+			},
+		},
+		{
+			name: "secret syntax", path: invalid + "secret-syntax.yaml", all: true,
+			want: []want{
+				{"vault.token", 4, 10, "must not be a vault: reference"},
+				{"storage.keys.b2_id", 10, 12, "file reference must be a clean absolute path"},
+				{"storage.keys.b2_key", 11, 13, "env reference must name a variable"},
+				{"targets[0].key", 18, 10, "env reference must name a variable"},
+				{"targets[0].key_passphrase", 19, 21, "env reference must name a variable"},
+				{"targets[0].sources[0].token", 21, 66,
+					"file reference must be a clean absolute path"},
+			},
+			hidden: "1KEY",
+		},
+		{
+			name: "no targets", content: base, all: true,
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			name: "empty targets", content: base + "targets: []\n", all: true,
+			warnings: []want{{"targets", 6, 10, "no targets configured"}},
+		},
+		{
+			name: "empty names without sources",
+			content: base + "targets:\n  - name: ''\n    transport: local\n  - name: null\n" +
+				"    transport: local\n",
+			all: true,
+			want: []want{
+				{"targets[0].name", 7, 11, "required"},
+				{"targets[1].name", 9, 11, "required"},
+			},
+			warnings: []want{
+				{"targets[0]", 7, 5, "target has no sources"},
+				{"targets[1]", 9, 5, "target has no sources"},
+			},
+		},
+		{
+			name: "value without prefix",
+			content: "---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n" +
+				"  password: fake-bare-password\n",
+			all: true,
+			warnings: []want{
+				{"targets", 1, 1, "no targets configured"},
+				{"storage.password", 5, 13, "value without prefix is treated as plain"},
+			},
+			hidden: "fake-bare-password",
+		},
+		{
+			name: "empty ssh values",
+			content: base + "targets:\n  - name: empty\n    transport: ssh\n    host: ''\n" +
+				"    user: null\n    auth: ['key', 'password']\n    key: ''\n" +
+				"    password: ''\n    known_hosts: ''\n" +
+				"    sources: [{type: test, id: empty, path: /srv/empty}]\n",
+			all: true,
+			want: []want{
+				{"targets[0].host", 9, 11, "required"},
+				{"targets[0].user", 10, 11, "required"},
+				{"targets[0].key", 12, 10, "required"},
+				{"targets[0].password", 13, 15, "required"},
+				{"targets[0].known_hosts", 14, 18, "required"},
+			},
+		},
+		{
+			name: "secrets of targets with an empty or an unknown transport",
+			content: base + "targets:\n  - name: wrong\n    transport: ftp\n" +
+				"    key_passphrase: 'env:1X'\n" +
+				"    sources: [{type: test, id: w, path: /srv/w}]\n" +
+				"  - name: empty\n    key_passphrase: 'env:2X'\n" +
+				"    sources: [{type: test, id: e, path: /srv/e}]\n",
+			all: true,
+			want: []want{
+				{"targets[0].transport", 8, 16, `"ftp" must be one of local, ssh`},
+				{"targets[0].key_passphrase", 9, 21, "env reference must name a variable"},
+				{"targets[1].transport", 11, 5, "required"},
+				{"targets[1].key_passphrase", 12, 21, "env reference must name a variable"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -621,13 +785,13 @@ func TestValidate(t *testing.T) {
 			checkErr(t, result)
 			var problems, warnings []config.Problem
 			for _, p := range result.Problems {
-				if owned(p.Path, tt.sections) {
+				if tt.all || owned(p.Path, tt.sections) {
 					problems = append(problems, p)
 				}
 			}
 			for _, w := range result.Warnings {
-				if owned(w.Path, tt.sections) &&
-					(len(tt.sections) == 0 || slices.Contains(sectionWarnings, w.Message)) {
+				if tt.all || (owned(w.Path, tt.sections) &&
+					(len(tt.sections) == 0 || slices.Contains(sectionWarnings, w.Message))) {
 					warnings = append(warnings, w)
 				}
 			}

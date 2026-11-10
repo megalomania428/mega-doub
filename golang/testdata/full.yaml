@@ -57,7 +57,7 @@ targets:
     key: 'file:/root/.ssh/fake_ed25519'
     key_passphrase: 'env:MEGA_DOUB_FULL_PASSPHRASE'
     # checkov:skip=CKV_SECRET_6: the secret reference is fake
-    password: 'plain:fake-password'
+    password: 'fake-password'
     known_hosts: /etc/ssh/fake_known_hosts
     connect_timeout: 15s
     sudo: true

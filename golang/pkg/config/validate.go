@@ -43,6 +43,8 @@ func Validate(l *Loaded) Result {
 	v.storage()
 	v.prune()
 	v.check()
+	v.targets()
+	v.secrets()
 	sortProblems(v.problems)
 	sortProblems(v.warnings)
 	return Result{Problems: v.problems, Warnings: v.warnings}
@@ -66,6 +68,14 @@ func (v *validator) problem(path, msg string) {
 func (v *validator) warning(path, msg string) {
 	line, column := v.position(path)
 	v.warnings = append(v.warnings, Problem{File: v.l.Path, Line: line, Column: column,
+		Path: path, Message: msg})
+}
+
+// keyProblem records a problem of the present key at path, a forbidden or a repeated
+// one, at the position of the key.
+func (v *validator) keyProblem(path, msg string) {
+	line, column, _ := v.l.Pos(path)
+	v.problems = append(v.problems, Problem{File: v.l.Path, Line: line, Column: column,
 		Path: path, Message: msg})
 }
 
@@ -229,14 +239,8 @@ func (v *validator) vault() {
 // for local targets left out. The prefix is checked as written, so a malformed vault:
 // reference counts too.
 func (v *validator) usesVault() bool {
-	skip := map[string]bool{"vault.token": true}
-	for i, t := range v.l.Config.Targets {
-		if t.Transport == "local" {
-			for _, field := range []string{"key", "key_passphrase", "password"} {
-				skip[fmt.Sprintf("targets[%d].%s", i, field)] = true
-			}
-		}
-	}
+	skip := v.localSecrets()
+	skip["vault.token"] = true
 	uses := false
 	WalkRefs(v.l.Config, func(path string, ref *secret.Ref) {
 		if !skip[path] && strings.HasPrefix(string(*ref), "vault:") {
@@ -369,4 +373,163 @@ func (v *validator) check() {
 	if c.TestRestoreBytes < 0 {
 		v.problem("check.test_restore_bytes", "must not be negative")
 	}
+}
+
+// targetName is the pattern of targets[].name and targets[].sources[].id. The names
+// become path components under global.copy_dir, so the first character is not . and
+// the names . and .. do not pass.
+var targetName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
+
+// transports are the values of targets[].transport.
+var transports = []string{"local", "ssh"}
+
+// authMethods are the values of the elements of targets[].auth.
+var authMethods = []string{"agent", "key", "password"}
+
+// localForbidden are the connection fields that a local target does not have.
+var localForbidden = []string{"host", "user", "port", "auth", "key", "key_passphrase",
+	"password", "known_hosts", "connect_timeout"}
+
+// localSecretFields are the secret fields among localForbidden.
+var localSecretFields = []string{"key", "key_passphrase", "password"}
+
+// targets checks the targets and their sources in the order of the schema.
+func (v *validator) targets() {
+	targets := v.l.Config.Targets
+	if len(targets) == 0 {
+		v.warning("targets", "no targets configured")
+		return
+	}
+	names := map[string]bool{}
+	for i := range targets {
+		t := &targets[i]
+		path := fmt.Sprintf("targets[%d]", i)
+		v.name(path+".name", t.Name, names)
+		switch {
+		case !v.required(path+".transport", t.Transport):
+		case t.Transport == "ssh":
+			v.ssh(path, &t.TargetSettings)
+		case t.Transport == "local":
+			v.local(path)
+		default:
+			v.problem(path+".transport",
+				quoted(t.Transport)+"must be one of "+strings.Join(transports, ", "))
+		}
+		if len(t.Sources) == 0 {
+			v.warning(path, "target "+quoted(t.Name)+"has no sources")
+		}
+		v.sources(i, t.Sources)
+	}
+}
+
+// name checks the name or the identifier at path by targetName and its uniqueness among
+// the values in seen, which it extends. An empty value is reported as required only, a
+// repeat at its key on every occurrence after the first.
+func (v *validator) name(path, value string, seen map[string]bool) {
+	if !v.required(path, value) {
+		return
+	}
+	if !targetName.MatchString(value) {
+		v.problem(path, quoted(value)+"must match "+targetName.String())
+	}
+	if seen[value] {
+		v.keyProblem(path, quoted(value)+"is not unique")
+	}
+	seen[value] = true
+}
+
+// ssh checks the connection fields of the ssh target at path. A key or a password
+// without its method in auth is allowed, a template may carry it for every target.
+func (v *validator) ssh(path string, t *TargetSettings) {
+	v.required(path+".host", t.Host)
+	if t.Port < 1 || t.Port > 65535 {
+		v.problem(path+".port", "must be from 1 to 65535")
+	}
+	v.required(path+".user", t.User)
+	if len(t.Auth) == 0 {
+		v.problem(path+".auth", "must not be empty")
+	}
+	seen := map[string]bool{}
+	for j, method := range t.Auth {
+		item := fmt.Sprintf("%s.auth[%d]", path, j)
+		if !slices.Contains(authMethods, method) {
+			v.problem(item, quoted(method)+"must be one of "+strings.Join(authMethods, ", "))
+		}
+		if seen[method] {
+			v.problem(item, quoted(method)+"is not unique")
+		}
+		seen[method] = true
+	}
+	if slices.Contains(t.Auth, "key") {
+		v.required(path+".key", string(t.Key))
+	} else if t.KeyPassphrase != "" {
+		// An empty key_passphrase is not set, an explicit null keeps the empty default.
+		v.keyProblem(path+".key_passphrase", "must not be set without key in auth")
+	}
+	if slices.Contains(t.Auth, "password") {
+		v.required(path+".password", string(t.Password))
+	}
+	if v.required(path+".known_hosts", t.KnownHosts) {
+		v.absolute(path+".known_hosts", t.KnownHosts)
+	}
+	if t.ConnectTimeout <= 0 {
+		v.problem(path+".connect_timeout", "must be greater than zero")
+	}
+}
+
+// local reports every connection field that the local target at path has, also through
+// <<, at its key. A default or an explicit null is not a value, an empty string is one.
+func (v *validator) local(path string) {
+	for _, field := range localForbidden {
+		if key := path + "." + field; v.l.HasValue(key) {
+			v.keyProblem(key, "must not be set for a local target")
+		}
+	}
+}
+
+// sources checks the identifiers of the sources of the target i and adds the problems
+// that the types of the sources report, at the joined paths.
+func (v *validator) sources(i int, sources []SourceConfig) {
+	ids := map[string]bool{}
+	for j, s := range sources {
+		v.name(fmt.Sprintf("targets[%d].sources[%d].id", i, j), s.SourceID(), ids)
+		for _, p := range v.l.sourceProblems(i, j, s.Validate()) {
+			p.File = v.l.Path
+			v.problems = append(v.problems, p)
+		}
+	}
+}
+
+// secrets checks the syntax of every secret reference, except the secret fields of the
+// local targets and a vault: reference in vault.token, which their rules report. A value
+// without a prefix gives a warning; the messages leave out the value.
+func (v *validator) secrets() {
+	skip := v.localSecrets()
+	WalkRefs(v.l.Config, func(path string, ref *secret.Ref) {
+		if skip[path] || (path == "vault.token" && strings.HasPrefix(string(*ref), "vault:")) {
+			return
+		}
+		parsed, err := secret.Parse(*ref)
+		switch {
+		case err != nil:
+			v.problem(path, err.Error())
+		case !parsed.Prefixed:
+			v.warning(path, "value without prefix is treated as plain")
+		}
+	})
+}
+
+// localSecrets returns the paths of the secret fields of the local targets. A target is
+// local by its transport, so the fields of a target with an empty or unknown transport
+// are not among them.
+func (v *validator) localSecrets() map[string]bool {
+	paths := map[string]bool{}
+	for i, t := range v.l.Config.Targets {
+		if t.Transport == "local" {
+			for _, field := range localSecretFields {
+				paths[fmt.Sprintf("targets[%d].%s", i, field)] = true
+			}
+		}
+	}
+	return paths
 }

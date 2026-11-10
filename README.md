@@ -64,6 +64,11 @@ A file that loads is validated next, a file that fails to load is not. The probl
 - `storage.name` is not empty and not `ssh` in any letter case. `storage.url` is a URL with a scheme and a host, such as `b2://bucket/prefix` or `sftp://user@host/path`; a local path is not supported. A password in its user information, an empty one included, gives the warning `url contains a password`; the URL is never logged. `storage.snapshot_id` matches `^[A-Za-z0-9_-]+$`, `storage.password` is required, `storage.threads` is at least `1`, and every key of `storage.keys` and its value are not empty.
 - Every element of `prune.keep` is `n:m` without spaces: keep one snapshot every `n` days for the snapshots older than `m` days, `n` of `0` removes them. Both numbers fit an integer, `m` is at least `1` and strictly decreases along the list, while `n` is not ordered; an element gets at most one problem. The format is always checked, a non-empty `prune.keep` is required when `prune.enabled` is set; `prune.threads` is at least `1`.
 - `check.every` is not negative and is above zero when `check.enabled` is set; `check.test_restore_bytes` is not negative, `0` is allowed.
+- An empty or missing `targets` gives the warning `no targets configured`. Every target has a `name` that matches `^[A-Za-z0-9_][A-Za-z0-9_.-]*$`, so `.`, `..` and a name starting with `.` or `-` fail, unique among the targets, and a `transport` of `local` or `ssh`. A target without sources gives the warning `target "<name>" has no sources`.
+- An `ssh` target requires `host`, `user` and `known_hosts`, an absolute path; `port` is from `1` to `65535`, `connect_timeout` is above zero and `auth` is a non-empty list of `agent`, `key` and `password` without repeats. `key` is required when `auth` has `key` and `password` when it has `password`; a `key` or a `password` without its method is allowed, a non-empty `key_passphrase` requires `key` in `auth`.
+- A `local` target has none of `host`, `user`, `port`, `auth`, `key`, `key_passphrase`, `password`, `known_hosts` and `connect_timeout`, also through `<<`; every such field is reported at its key, an explicit `null` is allowed and `''` is not.
+- Every source has an `id` that matches the pattern of `name` and is unique inside its target; the problems of the source type are reported too. A repeated `name` or `id` is reported at the key of every repeat after the first, an empty one only as `required`.
+- Every secret reference has the syntax of its prefix below, except the fields that a local target does not allow and a `vault:` reference in `vault.token`; a broken reference is reported without its value.
 
 ### Secrets
 
@@ -73,7 +78,7 @@ A secret field – `vault.token`, `storage.password`, the values of `storage.key
 - `env:<NAME>` – the environment variable `NAME`;
 - `file:<absolute path>` – the content of the file without the surrounding whitespace;
 - `vault:<mount>/<path>/<key>` – the key of a secret of the Vault KV version 2 engine at `vault.address`;
-- a string without a prefix is taken as `plain:`.
+- a string without a prefix is taken as `plain:` with the warning `value without prefix is treated as plain`, so a typo in a prefix, such as `evn:X`, gives a plain value with this warning.
 
 The values are not resolved yet.
 
@@ -84,4 +89,4 @@ The values are not resolved yet.
 - `3` – the command is not implemented yet;
 - `4` – interrupted by a signal before or during the command.
 
-<!-- cspell:ignore doub ldflags testdata -->
+<!-- cspell:ignore doub evn ldflags testdata -->

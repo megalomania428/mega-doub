@@ -148,7 +148,7 @@ func fullConfig() *config.Config {
 				Auth:           []string{"key", "password"},
 				Key:            "file:/root/.ssh/fake_ed25519",
 				KeyPassphrase:  "env:MEGA_DOUB_FULL_PASSPHRASE",
-				Password:       "plain:fake-password",
+				Password:       "fake-password",
 				KnownHosts:     "/etc/ssh/fake_known_hosts",
 				ConnectTimeout: config.Duration(15 * time.Second),
 				Sudo:           true,

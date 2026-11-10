@@ -15,9 +15,14 @@ import (
 	"testing"
 
 	"github.com/megalomania428/mega-doub/internal/cli"
+	"github.com/megalomania428/mega-doub/internal/testsource"
 	"github.com/megalomania428/mega-doub/pkg/config"
 	"github.com/megalomania428/mega-doub/pkg/logging"
 )
+
+func init() {
+	testsource.Register()
+}
 
 // record is one decoded JSON log record.
 type record map[string]any
@@ -212,6 +217,88 @@ func Test_handle_validate(t *testing.T) {
 			}
 			if !reflect.DeepEqual(tail, tt.wantTail) {
 				t.Errorf("cli.Execute() last records msg = %v, want %v", tail, tt.wantTail)
+			}
+		})
+	}
+}
+
+func Test_handle_validate_warnings(t *testing.T) {
+	const full = "../../testdata/full.yaml"
+	dir := t.TempDir()
+	// unprefixed has a value without a prefix at 5:13 and a target without sources at 7:5.
+	unprefixed := filepath.Join(dir, "unprefixed.yaml")
+	// empty has no targets, the warning is at 1:1.
+	empty := filepath.Join(dir, "empty.yaml")
+	for path, content := range map[string]string{
+		unprefixed: "---\nstorage:\n  url: 'b2://unprefixed-bucket/prefix'\n" +
+			"  snapshot_id: unprefixed-main\n  password: 'fake-unprefixed-password'\n" +
+			"targets:\n  - name: db01\n    transport: local\n    sources: []\n",
+		empty: "---\nstorage:\n  url: 'b2://empty-bucket/prefix'\n  snapshot_id: empty-main\n" +
+			"  password: 'env:MEGA_DOUB_EMPTY_STORAGE_PASSWORD'\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// warning is a warning record: the path, the position and the message.
+	type warning struct {
+		Path         string
+		Line, Column float64
+		Warning      string
+	}
+	tests := []struct {
+		name string
+		path string
+		want []warning
+	}{
+		{name: "full", path: full, want: []warning{
+			{"storage.url", 29, 8, "url contains a password"},
+			{"targets[0].password", 60, 15, "value without prefix is treated as plain"},
+		}},
+		{name: "value without prefix and no sources", path: unprefixed, want: []warning{
+			{"storage.password", 5, 13, "value without prefix is treated as plain"},
+			{"targets[0]", 7, 5, `target "db01" has no sources`},
+		}},
+		{name: "no targets", path: empty, want: []warning{
+			{"targets", 1, 1, "no targets configured"},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			args := []string{"config", "validate", "--log-level", "debug", "--log-format",
+				"json", "-c", tt.path}
+			if got := cli.Execute(t.Context(), args, stdout, stderr, cli.Build{},
+				handle); got != 0 {
+				t.Errorf("cli.Execute() = %v, want 0", got)
+			}
+			text := stderr.String()
+			for _, s := range []string{"fake-", "MEGA_DOUB", "b2://"} {
+				if strings.Contains(text, s) {
+					t.Errorf("cli.Execute() stderr contains %q: %s", s, text)
+				}
+			}
+			file, err := filepath.Abs(tt.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []warning
+			for _, r := range decodeRecords(t, stderr) {
+				if r["msg"] != "configuration warning" {
+					continue
+				}
+				if r["level"] != "WARN" || r["file"] != file {
+					t.Errorf("cli.Execute() warning record %v, want level WARN and file %v",
+						r, file)
+				}
+				path, _ := r["path"].(string)
+				line, _ := r["line"].(float64)
+				column, _ := r["column"].(float64)
+				msg, _ := r["warning"].(string)
+				got = append(got, warning{Path: path, Line: line, Column: column, Warning: msg})
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("cli.Execute() warning records = %v, want %v", got, tt.want)
 			}
 		})
 	}

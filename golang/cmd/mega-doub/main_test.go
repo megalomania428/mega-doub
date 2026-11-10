@@ -44,6 +44,13 @@ func Test_run(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// exampleWarnings are the warning records of the targets of example.yaml.
+	exampleWarnings := []string{
+		`level=WARN msg="configuration warning" file=` + regexp.QuoteMeta(examplePath) +
+			` line=26 column=5 path=targets\[0\] warning="target \\"db01\\" has no sources"$`,
+		`level=WARN msg="configuration warning" file=` + regexp.QuoteMeta(examplePath) +
+			` line=32 column=5 path=targets\[1\] warning="target \\"local\\" has no sources"$`,
+	}
 	tests := []struct {
 		name string
 		args args
@@ -58,6 +65,8 @@ func Test_run(t *testing.T) {
 			args: args{ctx: t.Context(), args: []string{"backup", "-c", example}},
 			want: 3,
 			wantStderr: []string{
+				exampleWarnings[0],
+				exampleWarnings[1],
 				`level=INFO msg=command command=backup ` +
 					`config=` + regexp.QuoteMeta(examplePath) + ` dry_run=false$`,
 				`level=ERROR msg="command is not implemented yet" command=backup$`,
@@ -68,6 +77,8 @@ func Test_run(t *testing.T) {
 			args: args{ctx: t.Context(), args: []string{"config", "validate", "-c", example}},
 			want: 0,
 			wantStderr: []string{
+				exampleWarnings[0],
+				exampleWarnings[1],
 				`level=INFO msg="configuration is valid" config=` +
 					regexp.QuoteMeta(examplePath) + `$`,
 			},
@@ -127,6 +138,9 @@ func Test_run(t *testing.T) {
 			want: 3,
 			json: true,
 			wantStderr: []string{
+				`"level":"WARN","msg":"configuration warning","file":"` +
+					regexp.QuoteMeta(logSettings) + `","line":1,"column":1,"path":"targets",` +
+					`"warning":"no targets configured"\}$`,
 				`"level":"ERROR","msg":"command is not implemented yet","command":"backup"\}$`,
 			},
 		},
@@ -136,6 +150,8 @@ func Test_run(t *testing.T) {
 				"--log-level", "info", "--log-format", "text"}},
 			want: 3,
 			wantStderr: []string{
+				`level=WARN msg="configuration warning" file=` + regexp.QuoteMeta(logSettings) +
+					` line=1 column=1 path=targets warning="no targets configured"$`,
 				`level=INFO msg=command command=backup config=` + regexp.QuoteMeta(logSettings) +
 					` dry_run=false$`,
 				`level=ERROR msg="command is not implemented yet" command=backup$`,

@@ -1,0 +1,29 @@
+---
+# Connection fields of local targets, merged from a template too.
+templates:
+  remote: &remote
+    host: remote.example.invalid
+    port: 2022
+    auth: ['agent']
+storage:
+  url: 'b2://local-bucket/mega-doub'
+  snapshot_id: local-main
+  password: 'env:MEGA_DOUB_LOCAL_STORAGE_PASSWORD'
+targets:
+  - <<: *remote
+    name: merged
+    transport: local
+    key: 'env:1BAD'
+    key_passphrase: ''
+    sources: [{type: test, id: merged, path: /srv/merged}]
+  - name: defaults
+    transport: local
+    port: null
+    sources: [{type: test, id: defaults, path: /srv/defaults}]
+  - name: fields
+    transport: local
+    user: backup
+    password: 'fake-local-password'
+    known_hosts: /etc/ssh/local_known_hosts
+    connect_timeout: 5s
+    sources: [{type: test, id: fields, path: /srv/fields}]
