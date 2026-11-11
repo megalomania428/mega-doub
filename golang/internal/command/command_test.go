@@ -207,65 +207,68 @@ func Test_handle_commands(t *testing.T) {
 	}{
 		{name: "backup dry run", file: "auto.yaml", args: []string{"backup", "--dry-run"},
 			want: 0, show: true,
-			wantRecords: []string{command("backup", "auto.yaml", dryRun),
+			wantRecords: []string{resolvedOne, command("backup", "auto.yaml", dryRun),
 				stopped("backup", true)}},
 		{name: "backup", file: "auto.yaml", args: []string{"backup"}, want: 3, show: true,
-			wantRecords: []string{command("backup", "auto.yaml", run),
+			wantRecords: []string{resolvedOne, command("backup", "auto.yaml", run),
 				stopped("backup", false)}},
 		{name: "prune dry run", file: "auto.yaml", args: []string{"prune", "--dry-run"},
 			want: 0, show: true,
-			wantRecords: []string{command("prune", "auto.yaml", dryRun+` enabled=false`),
+			wantRecords: []string{resolvedOne,
+				command("prune", "auto.yaml", dryRun+` enabled=false`),
 				stopped("prune", true)}},
 		{name: "prune not enabled", file: "auto.yaml", args: []string{"prune"}, want: 3,
 			show: true,
-			wantRecords: []string{command("prune", "auto.yaml", run+` enabled=false`),
+			wantRecords: []string{resolvedOne, command("prune", "auto.yaml", run+` enabled=false`),
 				stopped("prune", false)}},
 		{name: "prune enabled", file: "never.yaml",
 			args: []string{"prune", "--no-progress=false"}, want: 3, show: true,
-			wantRecords: []string{command("prune", "never.yaml", run+` enabled=true`),
+			wantRecords: []string{resolvedOne, command("prune", "never.yaml", run+` enabled=true`),
 				stopped("prune", false)}},
 		{name: "check from the configuration", file: "auto.yaml", args: []string{"check"},
 			want: 3, show: true,
-			wantRecords: []string{command("check", "auto.yaml",
+			wantRecords: []string{resolvedOne, command("check", "auto.yaml",
 				run+` files=true chunks=false enabled=false`), stopped("check", false)}},
 		{name: "check flags over the configuration", file: "auto.yaml",
 			args: []string{"check", "--files=false", "--chunks"}, want: 3, show: true,
-			wantRecords: []string{command("check", "auto.yaml",
+			wantRecords: []string{resolvedOne, command("check", "auto.yaml",
 				run+` files=false chunks=true enabled=false`), stopped("check", false)}},
 		{name: "check enabled dry run", file: "never.yaml",
 			args: []string{"check", "--dry-run", "--no-progress=false"}, want: 0, show: true,
-			wantRecords: []string{command("check", "never.yaml",
+			wantRecords: []string{resolvedOne, command("check", "never.yaml",
 				dryRun+` files=true chunks=false enabled=true`), stopped("check", true)}},
 		{name: "verify bytes from the configuration", file: "auto.yaml",
 			args: []string{"verify"}, want: 3, show: true,
-			wantRecords: []string{command("verify", "auto.yaml", run+` revision=0 bytes=100`),
+			wantRecords: []string{resolvedOne,
+				command("verify", "auto.yaml", run+` revision=0 bytes=100`),
 				stopped("verify", false)}},
 		{name: "verify zero bytes", file: "auto.yaml",
 			args: []string{"verify", "--dry-run", "--revision", "2", "--bytes", "0"}, want: 0,
 			show: true,
-			wantRecords: []string{command("verify", "auto.yaml", dryRun+` revision=2 bytes=0`),
+			wantRecords: []string{resolvedOne,
+				command("verify", "auto.yaml", dryRun+` revision=2 bytes=0`),
 				stopped("verify", true)}},
 		{name: "list", file: "auto.yaml", args: []string{"list", "--revision", "3"}, want: 3,
 			show: true,
-			wantRecords: []string{command("list", "auto.yaml", run+` revision=3`),
+			wantRecords: []string{resolvedOne, command("list", "auto.yaml", run+` revision=3`),
 				stopped("list", false)}},
 		{name: "list dry run", file: "auto.yaml", args: []string{"list", "--dry-run"},
 			want: 0, show: true,
-			wantRecords: []string{command("list", "auto.yaml", dryRun+` revision=0`),
+			wantRecords: []string{resolvedOne, command("list", "auto.yaml", dryRun+` revision=0`),
 				stopped("list", true)}},
 		{name: "no progress by the flag", file: "auto.yaml",
 			args: []string{"backup", "--dry-run", "--no-progress"}, want: 0, show: true,
-			wantRecords: []string{command("backup", "auto.yaml",
+			wantRecords: []string{resolvedOne, command("backup", "auto.yaml",
 				`dry_run=true log_level=info log_format=text no_progress=true`),
 				stopped("backup", true)}},
 		{name: "no progress by the configuration", file: "never.yaml",
 			args: []string{"backup", "--dry-run"}, want: 0, show: true,
-			wantRecords: []string{command("backup", "never.yaml",
+			wantRecords: []string{resolvedOne, command("backup", "never.yaml",
 				`dry_run=true log_level=info log_format=text no_progress=true`),
 				stopped("backup", true)}},
 		{name: "log level from the configuration", file: "debug.yaml",
 			args: []string{"backup", "--dry-run"}, want: 0, show: true,
-			wantRecords: []string{command("backup", "debug.yaml",
+			wantRecords: []string{resolvedOne, command("backup", "debug.yaml",
 				`dry_run=true log_level=debug log_format=text no_progress=false`),
 				stopped("backup", true)}},
 		{name: "config validate", file: "auto.yaml", args: []string{"config", "validate"},
@@ -291,7 +294,7 @@ func Test_handle_commands(t *testing.T) {
 				`error=.+`}},
 		{name: "backup dry run and then canceled", file: "auto.yaml",
 			args: []string{"backup", "--dry-run"}, cancel: true, want: 4, show: true,
-			wantRecords: []string{command("backup", "auto.yaml", dryRun),
+			wantRecords: []string{resolvedOne, command("backup", "auto.yaml", dryRun),
 				stopped("backup", true), `level=ERROR msg=interrupted error="context canceled"`}},
 	}
 	for _, tt := range tests {
@@ -299,7 +302,7 @@ func Test_handle_commands(t *testing.T) {
 			ctx, stop := context.WithCancel(t.Context())
 			defer stop()
 			handler := func(ctx context.Context, inv cli.Invocation, env cli.Env) int {
-				code := New(Deps{})(ctx, inv, env)
+				code := New(stubDeps())(ctx, inv, env)
 				if tt.cancel {
 					stop()
 				}
@@ -354,7 +357,7 @@ func Test_handle_show(t *testing.T) {
 			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			args := append([]string{"-c", full}, tt.args...)
 			if got := cli.Execute(t.Context(), args, stdout, stderr, cli.Build{},
-				New(Deps{})); got != tt.want {
+				New(stubDeps())); got != tt.want {
 				t.Errorf("cli.Execute() = %v, want %v", got, tt.want)
 			}
 			if got := stdout.Bytes(); !bytes.Equal(got, want) {
@@ -383,18 +386,21 @@ func Test_handle_output(t *testing.T) {
 		{name: "config show", args: []string{"config", "show"},
 			wantRecords: []string{failed}},
 		{name: "backup", args: []string{"backup"},
-			wantRecords: []string{`level=INFO msg=command command=backup .+`, failed}},
+			wantRecords: []string{resolvedOne,
+				`level=INFO msg=command command=backup .+`, failed}},
 		{name: "backup dry run", args: []string{"backup", "--dry-run"},
-			wantRecords: []string{`level=INFO msg=command command=backup .+`, failed}},
+			wantRecords: []string{resolvedOne,
+				`level=INFO msg=command command=backup .+`, failed}},
 		{name: "verify", args: []string{"verify"},
-			wantRecords: []string{`level=INFO msg=command command=verify .+`, failed}},
+			wantRecords: []string{resolvedOne,
+				`level=INFO msg=command command=verify .+`, failed}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stderr := &bytes.Buffer{}
 			args := append([]string{"-c", file}, tt.args...)
 			if got := cli.Execute(t.Context(), args, failingWriter{}, stderr, cli.Build{},
-				New(Deps{})); got != 2 {
+				New(stubDeps())); got != 2 {
 				t.Errorf("cli.Execute() = %v, want 2", got)
 			}
 			matchRecords(t, textRecords(stderr.String()), tt.wantRecords)
@@ -450,7 +456,7 @@ func Test_handle_canary(t *testing.T) {
 					stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 					args := append([]string{"--log-format", format, "-c", tt.path}, command...)
 					got := cli.Execute(t.Context(), args, stdout, stderr, cli.Build{},
-						New(Deps{}))
+						New(stubDeps()))
 					if tt.invalid && (got != 2 || stdout.Len() > 0) {
 						t.Errorf("cli.Execute() = %v with stdout %q, want 2 and no output", got,
 							stdout)
@@ -504,14 +510,14 @@ func Test_handle_outputTooLarge(t *testing.T) {
 		{name: "config show", args: []string{"config", "show"},
 			wantRecords: []string{failed}},
 		{name: "backup dry run", args: []string{"backup", "--dry-run"},
-			wantRecords: []string{command, failed}},
+			wantRecords: []string{resolvedOne, command, failed}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			args := append([]string{"-c", file}, tt.args...)
 			if got := cli.Execute(t.Context(), args, stdout, stderr, cli.Build{},
-				New(Deps{})); got != 2 {
+				New(stubDeps())); got != 2 {
 				t.Errorf("cli.Execute() = %v, want 2", got)
 			}
 			if stdout.Len() != 0 {

@@ -1,6 +1,6 @@
 ---
 # Example configuration of mega-doub, see the Configuration section of README.md.
-# Secrets are read from the environment, such as MEGA_DOUB_EXAMPLE_STORAGE_PASSWORD.
+# Secrets are read from the environment variables of the env: references.
 # Templates hold anchors for reuse; a template is checked only where it is used.
 templates:
   ssh-root: &ssh-root
