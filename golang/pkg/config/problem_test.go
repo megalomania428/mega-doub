@@ -190,6 +190,21 @@ func Test_newError(t *testing.T) {
 				{File: file, Line: 2, Column: 1, Path: "b", Message: "bad"},
 			}},
 		},
+		{
+			// A problem of an environment variable keeps its file, the others get the
+			// file of the configuration.
+			name: "own file",
+			args: args{file: file, problems: []Problem{
+				{File: "<env MAX_RETRIES_TIME>", Path: "global.retry.max_retries_time",
+					Message: "bad"},
+				{Line: 2, Column: 1, Path: "a", Message: "bad"},
+			}},
+			want: &Error{Problems: []Problem{
+				{File: file, Line: 2, Column: 1, Path: "a", Message: "bad"},
+				{File: "<env MAX_RETRIES_TIME>", Path: "global.retry.max_retries_time",
+					Message: "bad"},
+			}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

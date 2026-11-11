@@ -56,13 +56,16 @@ func (e *Error) Error() string {
 	return strings.Join(lines, "\n")
 }
 
-// newError sets the file of the problems, drops the repeated ones and sorts the
-// rest by position, the problems without a position go last.
+// newError sets the file of the problems that have none, a problem of an environment
+// variable keeps its own, drops the repeated ones and sorts the rest by position, the
+// problems without a position go last.
 func newError(file string, problems []Problem) *Error {
 	seen := make(map[Problem]bool, len(problems))
 	unique := make([]Problem, 0, len(problems))
 	for _, p := range problems {
-		p.File = file
+		if p.File == "" {
+			p.File = file
+		}
 		if !seen[p] {
 			seen[p] = true
 			unique = append(unique, p)

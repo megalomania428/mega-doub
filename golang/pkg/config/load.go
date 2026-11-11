@@ -12,9 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"go.yaml.in/yaml/v4"
 	"go.yaml.in/yaml/v4/plugin/loaderlimits"
+
+	"github.com/megalomania428/mega-doub/pkg/retry"
 )
 
 const (
@@ -32,6 +35,14 @@ type Loaded struct {
 	// Root is the document node of the file.
 	Root  *yaml.Node
 	index *index
+	// Retry are the options of global.retry after the overrides from the environment,
+	// Config keeps the values of the file.
+	Retry retry.Options
+	// RetryEnv are the applied overrides from the environment in the order of the
+	// variables.
+	RetryEnv []retry.Override
+	// retryFrom maps a key of global.retry to the variable that overrides it.
+	retryFrom map[string]string
 }
 
 // configFile is the root of the file, targets are decoded one by one. The sections
@@ -89,8 +100,10 @@ type issue struct {
 	seen int
 }
 
-// Load reads and decodes the configuration file at path. Every problem of the file is
-// reported at once in the returned *Error.
+// Load reads and decodes the configuration file at path and applies the overrides of
+// global.retry from the environment to Loaded.Retry. Every problem of the file and of
+// the variables is reported at once in the returned *Error; the environment is not
+// read when the file is not.
 func Load(path string) (*Loaded, error) {
 	if path == "" {
 		return nil, newError("", []Problem{{Message: "configuration path is empty"}})
@@ -106,11 +119,39 @@ func Load(path string) (*Loaded, error) {
 		return nil, newError(file, []Problem{{Message: err.Error()}})
 	}
 	loaded, problems := newLoader().load(data)
+	// The environment overrides global.retry of the file, or the defaults when the file
+	// does not load; the problems of the variables go after the problems of the file.
+	base := defaultConfig().Global.Retry
+	if loaded != nil && loaded.Config != nil {
+		base = loaded.Config.Global.Retry
+	}
+	options, overrides, envErrs := retry.FromEnv(retryOptions(base))
+	for _, e := range envErrs {
+		problems = append(problems, Problem{File: "<env " + e.Variable + ">",
+			Path: "global.retry." + e.Field, Message: e.Err.Error()})
+	}
 	if len(problems) > 0 {
 		return nil, newError(file, problems)
 	}
 	loaded.Path = file
+	loaded.Retry = options
+	loaded.RetryEnv = overrides
+	loaded.retryFrom = make(map[string]string, len(overrides))
+	for _, o := range overrides {
+		loaded.retryFrom[retry.Field(o.Variable)] = o.Variable
+	}
 	return loaded, nil
+}
+
+// retryOptions returns the values of the retry section as the options of retry.
+func retryOptions(r Retry) retry.Options {
+	return retry.Options{
+		MaxRetriesTime:      time.Duration(r.MaxRetriesTime),
+		BackoffInitial:      time.Duration(r.BackoffInitial),
+		BackoffStep:         time.Duration(r.BackoffStep),
+		BackoffStepAttempts: r.BackoffStepAttempts,
+		BackoffCap:          time.Duration(r.BackoffCap),
+	}
 }
 
 // readFile reads at most maxFileSize bytes and fails on a larger file.

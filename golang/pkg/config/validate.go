@@ -173,10 +173,11 @@ func within(parent, child string) bool {
 	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, "../")))
 }
 
-// retry checks global.retry by the effective values as go-lib-ci uses them: a zero or
-// negative backoff value selects its default, max_retries_time is not checked.
+// retry checks global.retry by the effective values of Loaded.Retry, after the
+// overrides from the environment, as go-lib-ci uses them: a zero or negative backoff
+// value selects its default, max_retries_time is not checked.
 func (v *validator) retry() {
-	r := v.l.Config.Global.Retry
+	r := v.l.Retry
 	initial := effective(r.BackoffInitial, defaultBackoffInitial)
 	step := effective(r.BackoffStep, defaultBackoffStep)
 	limit := effective(r.BackoffCap, defaultBackoffCap)
@@ -185,7 +186,7 @@ func (v *validator) retry() {
 		attempts = defaultBackoffStepAttempts
 	}
 	if limit < initial {
-		v.problem("global.retry.backoff_cap", fmt.Sprintf(
+		v.retryProblem([]string{"backoff_cap", "backoff_initial"}, fmt.Sprintf(
 			"must not be less than backoff_initial: effective %q < %q",
 			limit.String(), initial.String()))
 	}
@@ -193,17 +194,33 @@ func (v *validator) retry() {
 	// that overflows to zero divides by zero there.
 	hi, lo := bits.Mul64(uint64(limit/step)+1, uint64(attempts))
 	if hi != 0 || lo >= 1<<63 {
-		v.problem("global.retry.backoff_step_attempts",
+		v.retryProblem([]string{"backoff_step_attempts", "backoff_cap", "backoff_step"},
 			"is too large: the backoff cycle overflows int")
 	}
 }
 
 // effective returns the duration, or def when it is zero or negative.
-func effective(d Duration, def time.Duration) time.Duration {
+func effective(d, def time.Duration) time.Duration {
 	if d <= 0 {
 		return def
 	}
-	return time.Duration(d)
+	return d
+}
+
+// retryProblem records a problem of global.retry.<fields[0]> that the values of the
+// fields decide. When one of them comes from the environment, the variable of the
+// first such field names the file of the problem, which has no position; otherwise
+// the problem is at the field in the file.
+func (v *validator) retryProblem(fields []string, msg string) {
+	path := "global.retry." + fields[0]
+	for _, field := range fields {
+		if name, ok := v.l.retryFrom[field]; ok {
+			v.problems = append(v.problems, Problem{File: "<env " + name + ">", Path: path,
+				Message: msg})
+			return
+		}
+	}
+	v.problem(path, msg)
 }
 
 // vault checks the vault section. vault.address and vault.token are required when a

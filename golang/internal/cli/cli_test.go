@@ -75,6 +75,14 @@ func TestExecute(t *testing.T) {
 			wantStdout: []string{"Usage:", "mega-doub config validate [flags]"},
 		},
 		{
+			name: "help config",
+			args: args{args: []string{"help", "config"}},
+			wantStdout: []string{
+				"Usage:", "mega-doub config [command]",
+				"Show the effective configuration of the file without the retry overrides",
+			},
+		},
+		{
 			name:       "help flag before a command",
 			args:       args{args: []string{"--help", "backup"}},
 			wantStdout: []string{"Usage:", "mega-doub backup [flags]"},

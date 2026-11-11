@@ -188,7 +188,9 @@ func (p *parser) newRoot(build Build) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE:  requireCommand,
 	}
-	config.AddCommand(validate, p.leaf("show", "Show the effective configuration"))
+	config.AddCommand(validate, p.leaf(
+		"show", "Show the effective configuration of the file without the retry overrides",
+	))
 	root.AddCommand(
 		p.leaf("backup", "Back up all targets"),
 		p.leaf("prune", "Prune old revisions in the storage"),
