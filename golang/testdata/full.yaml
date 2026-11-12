@@ -26,7 +26,7 @@ vault:
   timeout: 45s
   ca_file: /usr/local/share/ca-certificates/fake-vault.crt
 storage:
-  name: offsite
+  name: offsite # checkov:skip=CKV_SECRET_4: next line has a fake credential
   url: 'sftp://u:fake-url-password@h.example.invalid/full'
   snapshot_id: full-main
   # checkov:skip=CKV_SECRET_6: the secret reference is fake
