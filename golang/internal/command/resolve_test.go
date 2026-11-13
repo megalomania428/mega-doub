@@ -216,8 +216,11 @@ func Test_handle_resolveVault(t *testing.T) {
 				`level=INFO msg="configuration is valid" config=` + path(unused)}},
 		{name: "vault reference", file: used, want: 2,
 			wantRecords: []string{`level=ERROR msg="secret resolution failed" ` +
-				`path=storage\.password kind=vault file=` + path(used) + ` line=8 column=13 ` +
-				`error="env reference: variable MEGA_DOUB_RESOLVE_TOKEN is not set"`}},
+				`path=vault\.token kind=env file=` + path(used) + ` line=4 column=10 ` +
+				`error="env reference: variable MEGA_DOUB_RESOLVE_TOKEN is not set"`,
+				`level=ERROR msg="secret resolution failed" ` +
+					`path=storage\.password kind=vault file=` + path(used) + ` line=8 column=13 ` +
+					`error="vault token is unresolved"`}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

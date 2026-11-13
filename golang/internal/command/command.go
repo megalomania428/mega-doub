@@ -99,11 +99,16 @@ type failure struct {
 // values stay in the cache of the resolver. A canceled context stops the loop: the
 // failures before it are logged, cli.Execute reports the interruption. A cancellation
 // during the last reference that resolves is an interruption too, so the command does
-// not run.
+// not run. The first failure of the token of Vault in the order of the walk adds one
+// failure of vault.token with the full text of its cause and the position of the value
+// of the token; the failures of the vault: references keep the short text. Then all
+// the failures are sorted by position, so vault.token takes the place of its line.
 func resolve(ctx context.Context, r secret.Resolver, loaded *config.Loaded,
 	logger *slog.Logger) int {
 	refs := config.Refs(loaded.Config)
 	var failures []failure
+	// tokenFailed is set once the failure of vault.token is added.
+	tokenFailed := false
 	for _, ref := range refs {
 		if ctx.Err() != nil {
 			break
@@ -122,6 +127,11 @@ func resolve(ctx context.Context, r secret.Resolver, loaded *config.Loaded,
 		f := failure{path: ref.Path, kind: string(parsed.Kind), err: err}
 		if line, column, ok := loaded.ValuePos(ref.Path); ok {
 			f.line, f.column = line, column
+		}
+		var tokenErr *secret.TokenError
+		if !tokenFailed && errors.As(err, &tokenErr) {
+			tokenFailed = true
+			failures = append(failures, tokenFailure(loaded, tokenErr))
 		}
 		failures = append(failures, f)
 	}
@@ -152,6 +162,20 @@ func sortFailures(failures []failure) {
 		}
 		return cmp.Or(cmp.Compare(a.line, b.line), cmp.Compare(a.column, b.column))
 	})
+}
+
+// tokenFailure returns the failure of vault.token behind err: the kind of the reference
+// of the token, the position of its value and the full text of the cause of err.
+func tokenFailure(loaded *config.Loaded, err *secret.TokenError) failure {
+	parsed, _ := secret.Parse(loaded.Config.Vault.Token)
+	f := failure{path: "vault.token", kind: string(parsed.Kind), err: err.Unwrap()}
+	if f.err == nil {
+		f.err = err
+	}
+	if line, column, ok := loaded.ValuePos("vault.token"); ok {
+		f.line, f.column = line, column
+	}
+	return f
 }
 
 // stub logs the invocation of a command that has no implementation yet with the

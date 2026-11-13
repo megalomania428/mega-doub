@@ -8,6 +8,7 @@ vault:
   # checkov:skip=CKV_SECRET_6: the secret reference is fake
   token: 'env:VAULT_TOKEN'
   timeout: 2s
+  ca_file: /usr/local/share/ca-certificates/fake-vault.crt
 global:
   instance: example-vault
 storage:
