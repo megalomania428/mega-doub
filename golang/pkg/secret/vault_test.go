@@ -21,6 +21,7 @@ import (
 	"time"
 
 	ci "github.com/megalomania428/go-lib-ci"
+	"github.com/megalomania428/mega-doub/pkg/retry"
 )
 
 const (
@@ -175,15 +176,19 @@ func Test_newVault(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := newVault(tt.args.opts, tt.args.r)
-			// reflect.DeepEqual never matches a function, so newClient and systemPool are
-			// checked apart.
+			// reflect.DeepEqual never matches a function and matches a channel only with
+			// itself, so newClient, systemPool and requests are checked apart.
 			if got.newClient == nil {
 				t.Error("newVault().newClient = nil, want ci.NewVaultClient")
 			}
 			if got.systemPool == nil {
 				t.Error("newVault().systemPool = nil, want x509.SystemCertPool")
 			}
-			got.newClient, got.systemPool = nil, nil
+			if cap(got.requests) != 1 || len(got.requests) != 0 {
+				t.Errorf("newVault().requests holds %d of %d, want an empty channel of 1",
+					len(got.requests), cap(got.requests))
+			}
+			got.newClient, got.systemPool, got.requests = nil, nil, nil
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("newVault() = %v, want %v", got, tt.want)
 			}
@@ -277,8 +282,9 @@ func Test_resolver_Resolve_vaultErrors(t *testing.T) {
 					_, _ = io.WriteString(w, testVaultBody)
 				}
 			})
+			// 503 is retried by default, the retries are disabled for one request.
 			r := New(VaultOptions{Address: srv.URL, Token: "plain:" + testVaultToken,
-				Timeout: time.Second})
+				Timeout: time.Second, Retry: retry.Options{MaxRetriesTime: -1}})
 			_, err := r.Resolve(t.Context(), testVaultRef)
 			if err == nil {
 				t.Fatal("resolver.Resolve() error = nil, want an error")
@@ -325,8 +331,9 @@ func Test_resolver_Resolve_vaultConnection(t *testing.T) {
 	if err := l.Close(); err != nil {
 		t.Fatal(err)
 	}
+	// A failed connection is retried by default, the retries are disabled for one attempt.
 	r := New(VaultOptions{Address: address, Token: "plain:" + testVaultToken,
-		Timeout: time.Second})
+		Timeout: time.Second, Retry: retry.Options{MaxRetriesTime: -1}})
 	_, err = r.Resolve(t.Context(), testVaultRef)
 	if !errors.Is(err, syscall.ECONNREFUSED) {
 		t.Fatalf("resolver.Resolve() error = %v, want %v", err, syscall.ECONNREFUSED)
@@ -350,8 +357,10 @@ func Test_resolver_Resolve_vaultTimeout(t *testing.T) {
 	})
 	// The cleanups run in reverse order: the handler returns before the server closes.
 	t.Cleanup(func() { close(release) })
+	// A timeout of the attempt is retried by default, the retries are disabled for one
+	// request.
 	r := New(VaultOptions{Address: srv.URL, Token: "plain:" + testVaultToken,
-		Timeout: timeout})
+		Timeout: timeout, Retry: retry.Options{MaxRetriesTime: -1}})
 	start := time.Now()
 	_, err := r.Resolve(t.Context(), testVaultRef)
 	elapsed := time.Since(start)
