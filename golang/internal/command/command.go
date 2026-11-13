@@ -21,8 +21,9 @@ import (
 // Deps holds the dependencies of the commands. They are given explicitly, so the tests
 // and the implementations of the commands substitute their own.
 type Deps struct {
-	// NewResolver returns the secret resolver of one run, secret.New when it is nil.
-	NewResolver func() secret.Resolver
+	// NewResolver returns the secret resolver of one run with the settings of its Vault
+	// client, secret.New when it is nil.
+	NewResolver func(secret.VaultOptions) secret.Resolver
 }
 
 // New returns the handler of all commands with the given dependencies.
@@ -72,7 +73,10 @@ func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int
 	}
 	validate := inv.Command == "config validate"
 	if !validate || inv.ConfigValidate.Resolve {
-		if code := resolve(ctx, deps.NewResolver(), loaded, env.Logger); code != model.ExitOK {
+		// The resolver follows the logger of the file; the Vault client starts only at the
+		// first vault: reference.
+		r := deps.NewResolver(vaultOptions(loaded, env.Logger))
+		if code := resolve(ctx, r, loaded, env.Logger); code != model.ExitOK {
 			return code
 		}
 	}

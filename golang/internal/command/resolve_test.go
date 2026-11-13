@@ -31,7 +31,7 @@ func (f resolverFunc) Resolve(ctx context.Context, ref secret.Ref) (secret.Value
 
 // depsOf returns the dependencies with f as the resolver of every run.
 func depsOf(f resolverFunc) Deps {
-	return Deps{NewResolver: func() secret.Resolver { return f }}
+	return Deps{NewResolver: func(secret.VaultOptions) secret.Resolver { return f }}
 }
 
 // stubDeps returns the dependencies with a resolver that gives every reference the
@@ -217,7 +217,7 @@ func Test_handle_resolveVault(t *testing.T) {
 		{name: "vault reference", file: used, want: 2,
 			wantRecords: []string{`level=ERROR msg="secret resolution failed" ` +
 				`path=storage\.password kind=vault file=` + path(used) + ` line=8 column=13 ` +
-				`error="vault references are not supported yet"`}},
+				`error="env reference: variable MEGA_DOUB_RESOLVE_TOKEN is not set"`}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

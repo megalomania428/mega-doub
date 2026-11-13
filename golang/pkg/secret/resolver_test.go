@@ -37,9 +37,9 @@ func countReads(r *resolver) *atomic.Int32 {
 }
 
 func TestNew(t *testing.T) {
-	r, ok := New().(*resolver)
+	r, ok := New(VaultOptions{}).(*resolver)
 	if !ok {
-		t.Fatalf("New() = %T, want *resolver", New())
+		t.Fatalf("New() = %T, want *resolver", New(VaultOptions{}))
 	}
 	if len(r.entries) != 0 || r.readFile == nil {
 		t.Errorf("New() = %+v, want an empty cache and a file reader", r)
@@ -141,15 +141,16 @@ func Test_resolver_Resolve(t *testing.T) {
 			errHas:  missing,
 		},
 		{
-			name:    "vault",
+			name:    "vault not configured",
 			args:    args{ref: "vault:depot/fake/key"},
 			wantErr: true,
-			is:      ErrUnsupported,
+			is:      errVaultNotConfigured,
+			errHas:  "vault is not configured",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := New().Resolve(t.Context(), tt.args.ref)
+			got, err := New(VaultOptions{}).Resolve(t.Context(), tt.args.ref)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("resolver.Resolve() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -175,9 +176,9 @@ func Test_resolver_Resolve(t *testing.T) {
 func Test_resolver_Resolve_cache(t *testing.T) {
 	path := writeSecret(t, "fake-first")
 	ref := Ref("file:" + path)
-	r, ok := New().(*resolver)
+	r, ok := New(VaultOptions{}).(*resolver)
 	if !ok {
-		t.Fatalf("New() = %T, want *resolver", New())
+		t.Fatalf("New() = %T, want *resolver", New(VaultOptions{}))
 	}
 	reads := countReads(r)
 	if got, err := r.Resolve(t.Context(), ref); err != nil || got.Reveal() != "fake-first" {
@@ -193,7 +194,7 @@ func Test_resolver_Resolve_cache(t *testing.T) {
 	if n := reads.Load(); n != 1 {
 		t.Errorf("resolver.Resolve() read the file %d times, want 1", n)
 	}
-	got, err := New().Resolve(t.Context(), ref)
+	got, err := New(VaultOptions{}).Resolve(t.Context(), ref)
 	if err != nil || got.Reveal() != "fake-second" {
 		t.Errorf("new resolver.Resolve() = %q, %v, want fake-second", got.Reveal(), err)
 	}
@@ -202,7 +203,7 @@ func Test_resolver_Resolve_cache(t *testing.T) {
 func Test_resolver_Resolve_failureNotCached(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "late")
 	ref := Ref("file:" + path)
-	r := New()
+	r := New(VaultOptions{})
 	if _, err := r.Resolve(t.Context(), ref); err == nil {
 		t.Fatal("resolver.Resolve() of a missing file error = nil, want an error")
 	}
@@ -218,9 +219,9 @@ func Test_resolver_Resolve_failureNotCached(t *testing.T) {
 func Test_resolver_Resolve_canceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	r, ok := New().(*resolver)
+	r, ok := New(VaultOptions{}).(*resolver)
 	if !ok {
-		t.Fatalf("New() = %T, want *resolver", New())
+		t.Fatalf("New() = %T, want *resolver", New(VaultOptions{}))
 	}
 	reads := countReads(r)
 	path := writeSecret(t, canary)
@@ -235,9 +236,9 @@ func Test_resolver_Resolve_canceled(t *testing.T) {
 func Test_resolver_Resolve_concurrent(t *testing.T) {
 	const goroutines = 32
 	shared := writeSecret(t, "fake-shared")
-	r, ok := New().(*resolver)
+	r, ok := New(VaultOptions{}).(*resolver)
 	if !ok {
-		t.Fatalf("New() = %T, want *resolver", New())
+		t.Fatalf("New() = %T, want *resolver", New(VaultOptions{}))
 	}
 	reads := countReads(r)
 	var wg sync.WaitGroup
@@ -273,9 +274,9 @@ func Test_resolver_Resolve_concurrent(t *testing.T) {
 		const wait = 5 * time.Second
 		slow := writeSecret(t, "fake-slow")
 		other := writeSecret(t, "fake-other")
-		r, ok := New().(*resolver)
+		r, ok := New(VaultOptions{}).(*resolver)
 		if !ok {
-			t.Fatalf("New() = %T, want *resolver", New())
+			t.Fatalf("New() = %T, want *resolver", New(VaultOptions{}))
 		}
 		barrier := make(chan struct{})
 		var open sync.Once

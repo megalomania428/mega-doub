@@ -6,7 +6,6 @@ package secret
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,19 +17,19 @@ import (
 // maxFileSize is the largest size of the file of a file: reference in bytes.
 const maxFileSize = 64 << 10
 
-// ErrUnsupported is the error of a vault: reference, which is not resolved yet.
-var ErrUnsupported = errors.New("vault references are not supported yet")
-
 // Resolver turns a Ref into its value. Values are cached for the lifetime
 // of one run.
 type Resolver interface {
 	Resolve(ctx context.Context, ref Ref) (Value, error)
 }
 
-// New returns a Resolver of the plain:, env: and file: references with an empty cache,
-// every run creates its own. A vault: reference gives ErrUnsupported.
-func New() Resolver {
-	return &resolver{entries: map[Ref]*entry{}, readFile: readFile}
+// New returns a Resolver of the plain:, env:, file: and vault: references with an empty
+// cache, every run creates its own. The vault: references are read with opts: the zero
+// VaultOptions makes them fail with the error vault is not configured.
+func New(opts VaultOptions) Resolver {
+	r := &resolver{entries: map[Ref]*entry{}, readFile: readFile}
+	r.vault = newVault(opts, r)
+	return r
 }
 
 // resolver caches the values of the references for one run.
@@ -39,6 +38,8 @@ type resolver struct {
 	entries map[Ref]*entry
 	// readFile reads the value of a file: reference, readFile of the package by default.
 	readFile func(path string) (string, error)
+	// vault reads the values of the vault: references.
+	vault *vault
 }
 
 // entry is the cache slot of one reference. Its own lock makes the concurrent requests
@@ -50,7 +51,9 @@ type entry struct {
 }
 
 // Resolve returns the value of ref, from the cache when it is resolved already. A failure
-// leaves the entry not ready, so the next request reads the source again.
+// leaves the entry not ready, so the next request reads the source again. A cancellation
+// of ctx, one that comes while the request waits for the entry included, is returned as
+// the error of ctx.
 func (r *resolver) Resolve(ctx context.Context, ref Ref) (Value, error) {
 	if err := ctx.Err(); err != nil {
 		return Value{}, err
@@ -64,8 +67,11 @@ func (r *resolver) Resolve(ctx context.Context, ref Ref) (Value, error) {
 	r.mu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Value{}, err
+	}
 	if !e.ready {
-		value, err := r.lookup(ref)
+		value, err := r.lookup(ctx, ref)
 		if err != nil {
 			return Value{}, err
 		}
@@ -75,8 +81,9 @@ func (r *resolver) Resolve(ctx context.Context, ref Ref) (Value, error) {
 }
 
 // lookup reads the value of ref from its source. The errors name the kind of the
-// reference and the variable or the path, never the value.
-func (r *resolver) lookup(ref Ref) (string, error) {
+// reference and the variable or the path, never the value. It runs under the lock of the
+// entry of ref only, so a vault: reference resolves the token of Vault with r.
+func (r *resolver) lookup(ctx context.Context, ref Ref) (string, error) {
 	parsed, err := Parse(ref)
 	if err != nil {
 		return "", err
@@ -94,7 +101,7 @@ func (r *resolver) lookup(ref Ref) (string, error) {
 	case KindFile:
 		return r.readFile(parsed.Body)
 	case KindVault:
-		return "", ErrUnsupported
+		return r.vault.read(ctx, parsed.Body)
 	}
 	return parsed.Body, nil
 }
