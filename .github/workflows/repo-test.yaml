@@ -1,5 +1,5 @@
 # kics-scan disable=555ab8f9-2001-455e-a077-f2d0f41e2fb9
-# cspell:ignore mktemp coverprofile covermode
+# cspell:ignore mktemp coverprofile covermode gofmt testdata mapfile
 ---
 name: repo test
 on:
@@ -24,6 +24,69 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: golang/go.mod
+          cache: true
+          cache-dependency-path: golang/go.sum
+      - name: go checks
+        working-directory: golang
+        run: |
+          go mod verify
+          unformatted="$(gofmt -l .)"
+          if [[ -n "${unformatted}" ]]; then
+            printf 'unformatted files:\n%s\n' "${unformatted}"
+            exit 1
+          fi
+          go build ./...
+          go vet ./...
+          go test -race ./...
+      - name: smoke
+        working-directory: golang
+        run: |
+          dir="${RUNNER_TEMP:-/tmp}/mega-doub-smoke"
+          mkdir -p "${dir}"
+          go build -o "${dir}/mega-doub" ./cmd/mega-doub
+          expect() {
+            local want="$1" got=0
+            shift
+            "${dir}/mega-doub" "$@" >/dev/null 2>&1 || got=$?
+            if [[ "${got}" -ne "${want}" ]]; then
+              printf 'mega-doub %s: exit code %s, want %s\n' "$*" "${got}" "${want}"
+              exit 1
+            fi
+          }
+          expect 0 --help
+          expect 0 version
+          expect 0 --version
+          expect 2 bogus
+          expect 2 backup --bogus
+          expect 0 config validate -c testdata/example.yaml
+          expect 0 config validate -c testdata/example-vault.yaml
+          (
+            export MAX_RETRIES_TIME=bogus
+            expect 2 config validate -c testdata/example.yaml
+          ) || exit 1
+          expect 2 config validate -c testdata/invalid/unknown-key-root.yaml
+          expect 0 config show -c testdata/example.yaml
+          # The env: references of example.yaml resolve to fake values.
+          mapfile -t names < <(grep -oE 'env:MEGA_DOUB_EXAMPLE_[A-Za-z0-9_]+' \
+            testdata/example.yaml | sed 's/^env://' | sort -u)
+          if [[ "${#names[@]}" -eq 0 ]]; then
+            echo 'no MEGA_DOUB_EXAMPLE_* references found in testdata/example.yaml' >&2
+            exit 1
+          fi
+          for name in "${names[@]}"; do
+            value="${name,,}"
+            export "${name}=fake-${value//_/-}"
+          done
+          expect 0 config validate --resolve -c testdata/example.yaml
+          (
+            unset "${names[@]}"
+            expect 2 config validate --resolve -c testdata/example.yaml
+          ) || exit 1
+          expect 0 backup --dry-run -c testdata/example.yaml
+          expect 3 backup -c testdata/example.yaml
   linters:
     name: linters
     timeout-minutes: 11
@@ -37,6 +100,7 @@ jobs:
       - name: lint the repo
         env:
           BRA: master
+          USE_LINTIGNORE: 1
         run: |
           curl -fsL \
           https://raw.githubusercontent.com/raven428/container-images/refs/heads/${{
@@ -64,13 +128,10 @@ jobs:
       - tests
       - linters
       - MegaLinter
-    if: github.event_name == 'pull_request'
-    permissions:
-      checks: read
+    if: ${{ always() && github.event_name == 'pull_request' }}
     steps:
-      - name: waiting for checks success
-        uses: poseidon/wait-for-status-checks@v0.6.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ignore: all green
-          timeout: 111s
+      - name: Check dependencies
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success")'

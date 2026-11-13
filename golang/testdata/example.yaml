@@ -1,0 +1,34 @@
+---
+# Example configuration of mega-doub, see the Configuration section of README.md.
+# Secrets are read from the environment variables of the env: references.
+# Templates hold anchors for reuse; a template is checked only where it is used.
+templates:
+  ssh-root: &ssh-root
+    transport: ssh
+    port: 22
+    user: root
+    auth: ['agent', 'key']
+    key: 'env:MEGA_DOUB_EXAMPLE_SSH_KEY'
+    known_hosts: /etc/ssh/ssh_known_hosts
+    connect_timeout: 10s
+global:
+  # Directories default to /var/lib/mega-doub/{copy,state}/<instance>.
+  instance: example
+storage:
+  url: 'b2://example-bucket/mega-doub'
+  snapshot_id: example-main
+  password: 'env:MEGA_DOUB_EXAMPLE_STORAGE_PASSWORD'
+  keys:
+    b2_id: 'env:MEGA_DOUB_EXAMPLE_B2_ID'
+    b2_key: 'env:MEGA_DOUB_EXAMPLE_B2_KEY'
+targets:
+  # Keys of the template are merged with <<, a local key overrides the template.
+  - <<: *ssh-root
+    name: db01
+    host: db01.example.invalid
+    port: 2222
+    sources: []
+  # A local target reads the files of this host and has no connection settings.
+  - name: local
+    transport: local
+    sources: []

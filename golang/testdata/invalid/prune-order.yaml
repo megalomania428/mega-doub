@@ -1,0 +1,9 @@
+---
+# The ages m of prune.keep do not decrease; the intervals n are not ordered.
+storage:
+  url: 'b2://order-bucket/mega-doub'
+  snapshot_id: order-main
+  password: 'env:MEGA_DOUB_ORDER_STORAGE_PASSWORD'
+prune:
+  enabled: true
+  keep: ['9:44', '3:44', '1:44', '2:30', '0:60']

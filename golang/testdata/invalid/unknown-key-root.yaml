@@ -1,0 +1,4 @@
+---
+global:
+  instance: main
+bogus: 1

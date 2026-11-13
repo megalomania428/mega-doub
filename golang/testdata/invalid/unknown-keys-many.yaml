@@ -1,0 +1,8 @@
+---
+bogus: 1
+storage:
+  extra: 2
+targets:
+  - name: web
+    transport: local
+    surplus: 3

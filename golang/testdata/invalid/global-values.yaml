@@ -1,0 +1,12 @@
+---
+# Values out of the rules of the global section, one problem per key.
+storage:
+  url: 'b2://values-bucket/mega-doub'
+  snapshot_id: values-main
+  password: 'env:MEGA_DOUB_VALUES_STORAGE_PASSWORD'
+global:
+  instance: a/b
+  parallel_targets: 0
+  parallel_sources: -1
+  progress: foo
+  timeout: 0s

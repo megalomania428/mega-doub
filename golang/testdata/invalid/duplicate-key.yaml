@@ -1,0 +1,4 @@
+---
+vault:
+  timeout: 30s
+  timeout: 45s

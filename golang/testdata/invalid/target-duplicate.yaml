@@ -1,0 +1,19 @@
+---
+# Names of the targets: the format, repeats and empty names.
+storage:
+  url: 'b2://names-bucket/mega-doub'
+  snapshot_id: names-main
+  password: 'env:MEGA_DOUB_NAMES_STORAGE_PASSWORD'
+targets:
+  - {name: '.', transport: local, sources: [{type: test, id: s, path: /srv/dot}]}
+  - {name: '..', transport: local, sources: [{type: test, id: s, path: /srv/dots}]}
+  - {name: '.hidden', transport: local, sources: [{type: test, id: s, path: /srv/hidden}]}
+  - {name: '-x', transport: local, sources: [{type: test, id: s, path: /srv/dash}]}
+  - {name: '_x', transport: local, sources: [{type: test, id: s, path: /srv/under}]}
+  - {name: 'a.b-c', transport: local, sources: [{type: test, id: s, path: /srv/abc}]}
+  - {name: 'db', transport: local, sources: [{type: test, id: s, path: /srv/db1}]}
+  - {name: 'db', transport: local, sources: [{type: test, id: s, path: /srv/db2}]}
+  - {name: 'db', transport: local, sources: [{type: test, id: s, path: /srv/db3}]}
+  - {name: '', transport: local, sources: [{type: test, id: s, path: /srv/empty1}]}
+  - {name: null, transport: local, sources: [{type: test, id: s, path: /srv/null}]}
+  - {name: '', transport: local, sources: [{type: test, id: s, path: /srv/empty2}]}

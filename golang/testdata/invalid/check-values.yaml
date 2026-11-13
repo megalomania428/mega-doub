@@ -1,0 +1,9 @@
+---
+# Values out of the rules of the check section; test_restore_bytes of 0 is allowed.
+storage:
+  url: 'b2://check-bucket/mega-doub'
+  snapshot_id: check-main
+  password: 'env:MEGA_DOUB_CHECK_STORAGE_PASSWORD'
+check:
+  every: -1h
+  test_restore_bytes: 0
