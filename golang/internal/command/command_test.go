@@ -419,7 +419,7 @@ func Test_handle_canary(t *testing.T) {
 	const valid = "  snapshot_id: canary-main\n" +
 		"  password: 'env:MEGA_DOUB_CANARY_PASSWORD'\ntargets:\n  - name: local\n" +
 		"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n"
-	vaultConfig := "---\nvault:\n" +
+	vaultConfig := "---\nvault:\n" + // kingfisher:ignore - next line is fake
 		"  address: 'https://u:fake-canary-vault@vault.example.invalid'\n" +
 		"  token: 'env:MEGA_DOUB_CANARY_TOKEN'\n" +
 		"storage:\n  url: 'b2://canary-bucket/prefix'\n" + valid

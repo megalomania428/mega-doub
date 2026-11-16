@@ -25,5 +25,5 @@ targets:
     user: backup
     password: 'fake-local-password'
     known_hosts: /etc/ssh/local_known_hosts
-    connect_timeout: 5s
+    connect_timeout: 5s # checkov:skip=CKV_SECRET_6: next line has no secret
     sources: [{type: test, id: fields, path: /srv/fields}]

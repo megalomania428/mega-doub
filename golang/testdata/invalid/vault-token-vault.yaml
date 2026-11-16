@@ -5,5 +5,5 @@ storage:
   snapshot_id: token-main
   password: 'env:MEGA_DOUB_TOKEN_STORAGE_PASSWORD'
 vault:
-  address: 'https://vault.example.invalid'
+  address: 'https://vault.example.invalid' # checkov:skip=CKV_SECRET_6: next line is a ref
   token: 'vault:depot/mega-doub/token/vault-token'

@@ -2,3 +2,8 @@
 /golang/testdata/invalid/duplicate-key.yaml
 /golang/testdata/invalid/duplicate-merge.yaml
 /golang/testdata/invalid/not-yaml.yaml
+/golang/testdata/invalid/secret-syntax.yaml
+/golang/testdata/invalid/source-duplicate.yaml
+/golang/testdata/invalid/target-duplicate.yaml
+/golang/testdata/invalid/target-local.yaml
+/golang/testdata/invalid/target-ssh.yaml
