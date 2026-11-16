@@ -1,0 +1,5 @@
+---
+targets:
+  - name: db01
+    transport: local
+    bogus: 1

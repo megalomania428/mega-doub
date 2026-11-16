@@ -20,7 +20,18 @@ type testSource struct {
 	Path       string `yaml:"path"`
 }
 
-func (testSource) Validate() []Problem { return nil }
+// Validate reports a missing id and a relative path, problems about the whole source
+// and about one of its keys.
+func (s testSource) Validate() []Problem {
+	var problems []Problem
+	if s.ID == "" {
+		problems = append(problems, Problem{Message: "id is required"})
+	}
+	if !strings.HasPrefix(s.Path, "/") {
+		problems = append(problems, Problem{Path: "path", Message: "path must be absolute"})
+	}
+	return problems
+}
 
 func init() {
 	Register("test", func(node *yaml.Node, opts ...yaml.Option) (SourceConfig, error) {
@@ -197,6 +208,23 @@ func TestLoad(t *testing.T) {
 	listed.Port = 1
 	listed.User = "local"
 	listed.KnownHosts = "/etc/ssh/b_known_hosts"
+	// The link leads to a directory with an invalid file, the path cleaned before it is
+	// read names the valid one.
+	linked := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(linked, "real", "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linked, "link")
+	if err := os.Symlink(filepath.Join("real", "sub"), link); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"main.yaml": "---\n{}\n",
+		filepath.Join("real", "main.yaml"): "---\nbogus: 1\n"} {
+		err := os.WriteFile(filepath.Join(linked, name), []byte(content), 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	type args struct {
 		path string
 	}
@@ -213,6 +241,8 @@ func TestLoad(t *testing.T) {
 		// hidden must not appear in the error.
 		hidden string
 		quick  bool
+		// noFile uses args.path as is, even when it is empty.
+		noFile bool
 	}{
 		{
 			name: "example",
@@ -297,22 +327,631 @@ func TestLoad(t *testing.T) {
 			name: "unknown root key",
 			args: args{path: "../../testdata/invalid/unknown-key-root.yaml"},
 			wantErr: []string{
-				"unknown-key-root.yaml:4:1: field bogus not found in type config.configFile",
+				"unknown-key-root.yaml:4:1: bogus: field bogus not found in type config.configFile",
 			},
 		},
 		{
 			name: "bad duration",
 			args: args{path: "../../testdata/invalid/bad-duration.yaml"},
 			wantErr: []string{
-				"bad-duration.yaml:3:12: invalid duration: want a number with a unit, such as 30s",
+				"bad-duration.yaml:3:12: global.timeout: invalid duration: want a number with a " +
+					"unit, such as 30s",
 			},
 		},
 		{
 			name: "bad log level",
 			args: args{path: "../../testdata/invalid/bad-log-level.yaml"},
 			wantErr: []string{
-				"bad-log-level.yaml:3:14: invalid log level: want one of debug, info, warn, error",
+				"bad-log-level.yaml:3:14: global.log_level: invalid log level: want one of debug, " +
+					"info, warn, error",
 			},
+		},
+		{
+			name: "unknown nested key",
+			args: args{path: "../../testdata/invalid/unknown-key-nested.yaml"},
+			wantErr: []string{
+				"unknown-key-nested.yaml:5:5: global.retry.bogus: field bogus not found",
+			},
+		},
+		{
+			name: "unknown target key",
+			args: args{path: "../../testdata/invalid/unknown-key-target.yaml"},
+			wantErr: []string{
+				"unknown-key-target.yaml:5:5: targets[0].bogus: field bogus not found",
+			},
+		},
+		{
+			name: "unknown source key",
+			args: args{path: "../../testdata/invalid/unknown-key-source.yaml"},
+			wantErr: []string{
+				"unknown-key-source.yaml:8:9: targets[0].sources[0].bogus: field bogus not found",
+			},
+		},
+		{
+			name: "unknown key from a template",
+			args: args{path: "../../testdata/invalid/unknown-key-merge.yaml"},
+			wantErr: []string{
+				"unknown-key-merge.yaml:6:5: targets[0].bogus: field bogus not found",
+				"unknown-key-merge.yaml:6:5: targets[1].bogus: field bogus not found",
+			},
+		},
+		{
+			name: "unknown keys on many levels",
+			args: args{path: "../../testdata/invalid/unknown-keys-many.yaml"},
+			wantErr: []string{
+				"unknown-keys-many.yaml:2:1: bogus: field bogus not found in type config.configFile",
+				"unknown-keys-many.yaml:4:3: storage.extra: field extra not found",
+				"unknown-keys-many.yaml:8:5: targets[0].surplus: field surplus not found",
+			},
+		},
+		{
+			name: "duplicate key",
+			args: args{path: "../../testdata/invalid/duplicate-key.yaml"},
+			wantErr: []string{
+				`duplicate-key.yaml:4:3: vault.timeout: mapping key "timeout" already defined`,
+			},
+		},
+		{
+			name: "duplicate merge key",
+			args: args{path: "../../testdata/invalid/duplicate-merge.yaml"},
+			wantErr: []string{
+				`duplicate-merge.yaml:8:5: targets[0]: mapping key "<<" already defined at line 7`,
+			},
+		},
+		{
+			name: "alias key and explicit key",
+			args: args{path: "../../testdata/invalid/already-set.yaml"},
+			wantErr: []string{
+				"already-set.yaml:6:3: storage.name: field name already set in type config.Storage",
+			},
+		},
+		{
+			name: "unknown source type",
+			args: args{path: "../../testdata/invalid/unknown-source-type.yaml"},
+			wantErr: []string{
+				"unknown-source-type.yaml:6:15: targets[0].sources[0].type: unknown source type",
+			},
+		},
+		{
+			name: "missing source type",
+			args: args{path: "../../testdata/invalid/missing-source-type.yaml"},
+			wantErr: []string{
+				"missing-source-type.yaml:6:9: targets[0].sources[0]: source type is required",
+			},
+		},
+		{
+			name: "bad size",
+			args: args{path: "../../testdata/invalid/bad-size.yaml"},
+			wantErr: []string{
+				"bad-size.yaml:3:23: check.test_restore_bytes: invalid size: want digits",
+			},
+		},
+		{
+			name: "wrong type",
+			args: args{path: "../../testdata/invalid/wrong-type.yaml"},
+			wantErr: []string{
+				"wrong-type.yaml:3:12: storage.threads: cannot construct !!str into int",
+			},
+		},
+		{
+			name:    "alias in two sections",
+			content: "---\nglobal:\n  timeout: &t 30\nvault:\n  timeout: *t\n",
+			wantErr: []string{
+				"{file}:3:12: global.timeout: invalid duration",
+				"{file}:3:12: vault.timeout: invalid duration",
+			},
+		},
+		{
+			// Only one of the two values the alias gives fails, so the path is unknown.
+			name:    "alias in fields of two types",
+			content: "---\ntargets:\n  - name: &t abc\n    port: *t\n",
+			wantErr: []string{"{file}:3:11: cannot construct !!str into int"},
+		},
+		{
+			// The library skips the value of an unknown key, it is no candidate.
+			name:    "alias under an unknown key",
+			content: "---\nglobal:\n  timeout: &t 30\n  bogus: *t\n",
+			wantErr: []string{
+				"{file}:3:12: global.timeout: invalid duration",
+				"{file}:4:3: global.bogus: field bogus not found",
+			},
+		},
+		{
+			// The library drops a null key silently.
+			name:    "null keys",
+			content: "---\nglobal:\n  null: x\nstorage:\n  keys:\n    ~: 'plain:fake'\n",
+			wantErr: []string{
+				"{file}:3:3: global: null key is not allowed",
+				"{file}:6:5: storage.keys: null key is not allowed",
+			},
+		},
+		{
+			// The library does not see a null key in a value it skips, in a mapping with
+			// a repeated key or in a source that no decoder decodes.
+			name: "null keys the library does not construct",
+			content: "---\ntargets:\n  - name: a\n    bogus:\n      null: 1\n    sources:\n" +
+				"      - type: bogus\n        ~: 2\n      - type: test\n        id: x\n" +
+				"        id: y\n        null: 3\n",
+			wantErr: []string{
+				"{file}:4:5: targets[0].bogus: field bogus not found in type config.targetItem",
+				"{file}:7:15: targets[0].sources[0].type: unknown source type",
+				`{file}:11:9: targets[0].sources[1].id: mapping key "id" already defined`,
+			},
+		},
+		{
+			// The root is decoded before the target that stops decoding.
+			name: "null keys after a fatal error",
+			content: "---\nglobal:\n  null: x\ntargets:\n  - name: a\n    <<: 5\n" +
+				"    ~: y\n  - name: b\n    null: z\n",
+			wantErr: []string{
+				"{file}:3:3: global: null key is not allowed",
+				"{file}:6:9: map merge requires map or sequence of maps as the value",
+			},
+		},
+		{
+			// The repeated key of a template merged twice has no certain path, so no
+			// mapping of the template is constructed.
+			name: "null keys in a template with a repeated key",
+			content: "---\ntemplates:\n  t: &t\n    name: a\n    name: b\n    null: 1\n" +
+				"targets:\n  - <<: [*t, *t]\n",
+			wantErr: []string{
+				`{file}:5:5: targets[0].name: mapping key "name" already defined at line 4`,
+			},
+		},
+		{
+			// The library stops in global, storage is decoded before it and prune is not.
+			name: "null keys around a fatal error of the root",
+			content: "---\nstorage:\n  threads: 2\n  null: x\nglobal:\n  ~: y\n  <<: 5\n" +
+				"prune:\n  null: z\n",
+			wantErr: []string{
+				"{file}:4:3: storage: null key is not allowed",
+				"{file}:7:7: map merge requires map or sequence of maps as the value",
+			},
+		},
+		{
+			// The fatal errors stop the library before it reads the targets or the sources.
+			name:    "null keys in the targets after a fatal error of the root",
+			content: "---\nstorage:\n  <<: 5\ntargets:\n  - name: a\n    null: x\n",
+			wantErr: []string{
+				"{file}:3:7: map merge requires map or sequence of maps as the value",
+			},
+		},
+		{
+			name: "null keys in the sources after a fatal error of the target",
+			content: "---\ntargets:\n  - name: a\n    <<: 5\n    sources:\n" +
+				"      - type: x\n        null: x\n",
+			wantErr: []string{
+				"{file}:4:9: map merge requires map or sequence of maps as the value",
+			},
+		},
+		{
+			// A merging mapping is flattened before its values, so its null keys are seen
+			// before a fatal error in a value.
+			name: "null keys of a merging mapping before a fatal error",
+			content: "---\ntemplates:\n  base: &base\n    name: a\n    null: y\n" +
+				"targets:\n  - <<: *base\n    port: !!binary \"!!!\"\n    null: x\n",
+			wantErr: []string{
+				"{file}:5:5: targets[0]: null key is not allowed",
+				"{file}:8:11: !!binary value contains invalid base64 data",
+				"{file}:9:5: targets[0]: null key is not allowed",
+			},
+		},
+		{
+			// No node is at a fatal error in a key, the keys before it are seen.
+			name: "null keys before a fatal error without a node",
+			content: "---\nstorage:\n  threads: 2\n  null: x\n? !!binary \"!!!\"\n: 1\n" +
+				"prune:\n  null: y\n",
+			wantErr: []string{
+				"{file}:4:3: storage: null key is not allowed",
+				"{file}:5:3: !!binary value contains invalid base64 data",
+			},
+		},
+		{
+			// The library drops the template with a repeated key and its values, not the
+			// target.
+			name: "null keys of a target that merges a template with a repeated key",
+			content: "---\ntemplates:\n  t: &t\n    name: a\n    name: b\n    null: y\n" +
+				"    host:\n      null: z\ntargets:\n  - <<: *t\n    port: abc\n    null: x\n",
+			wantErr: []string{
+				`{file}:5:5: targets[0].name: mapping key "name" already defined at line 4`,
+				"{file}:11:11: targets[0].port: cannot construct !!str into int",
+				"{file}:12:5: targets[0]: null key is not allowed",
+			},
+		},
+		{
+			// A key without a name has no path.
+			name:    "a key of a wrong type",
+			content: "---\ntargets:\n  - name: a\n    ? [x]\n    : 1\n",
+			wantErr: []string{"{file}:4:7: cannot construct !!seq into string"},
+		},
+		{
+			// The library stops at a fatal key without a name, the keys after it are not seen.
+			name: "null keys after a fatal key without a name",
+			content: "---\nstorage:\n  null: w\n  ? !!binary \"!!!\"\n  : 1\n  ~: x\n" +
+				"prune:\n  null: y\n",
+			wantErr: []string{
+				"{file}:3:3: storage: null key is not allowed",
+				"{file}:4:5: !!binary value contains invalid base64 data",
+			},
+		},
+		{
+			// The library flattens a merging mapping key by key and stops at a fatal key.
+			name: "null keys after a fatal key of a merging mapping",
+			content: "---\ntemplates:\n  t: &t\n    name: a\n    null: z\ntargets:\n" +
+				"  - <<: *t\n    ? !!binary \"!!!\"\n    : x\n    null: y\n  - name: b\n",
+			wantErr: []string{"{file}:8:7: !!binary value contains invalid base64 data"},
+		},
+		{
+			// The library drops a merged mapping with a repeated key, the next one sets the
+			// key instead.
+			name: "a merged mapping with a repeated key",
+			content: "---\ntemplates:\n  bad: &bad\n    name: a\n    name: b\n    port: 1\n" +
+				"    host:\n      null: z\n  good: &good\n    port: abc\n" +
+				"targets:\n  - <<: [*bad, *good]\n    null: x\n",
+			wantErr: []string{
+				`{file}:5:5: targets[0].name: mapping key "name" already defined at line 4`,
+				"{file}:10:11: targets[0].port: cannot construct !!str into int",
+				"{file}:13:5: targets[0]: null key is not allowed",
+			},
+		},
+		{
+			// The dropped mapping hides no value of the next one on the same path.
+			name: "a merged mapping with a repeated key and a null key in the next one",
+			content: "---\ntemplates:\n  a: &a\n    name: x\n    name: y\n    keys:\n" +
+				"      b2_id: 'plain:x'\n  b: &b\n    keys:\n      null: z\nstorage:\n" +
+				"  <<: [*a, *b]\n  threads: 2\n",
+			wantErr: []string{
+				`{file}:5:5: storage.name: mapping key "name" already defined at line 4`,
+				"{file}:10:7: storage.keys: null key is not allowed",
+			},
+		},
+		{
+			// The keys of the dropped mapping are marked even when a mapping before it sets
+			// them.
+			name: "a merged mapping with a repeated key after another",
+			content: "---\ntemplates:\n  a: &a\n    name: x\n    name: y\n    host:\n" +
+				"      null: z\n  b: &b\n    name: w\ntargets:\n  - <<: [*b, *a]\n",
+			wantErr: []string{
+				`{file}:5:5: targets[0].name: mapping key "name" already defined at line 4`,
+			},
+		},
+		{
+			// A repeated merge key of the dropped mapping belongs to the mapping it is merged
+			// into.
+			name: "a merged mapping with a repeated merge key",
+			content: "---\ntemplates:\n  a: &a {name: a}\n  b: &b {host: b}\n  bad: &bad\n" +
+				"    <<: *a\n    <<: *b\ntargets:\n  - <<: *bad\n",
+			wantErr: []string{
+				`{file}:7:5: targets[0]: mapping key "<<" already defined at line 6`,
+			},
+		},
+		{
+			// A repeated key without a name has no path, the library still drops the
+			// mapping.
+			name: "null keys in a mapping with a repeated null key",
+			content: "---\ntargets:\n  - name: a\n    null: 1\n    null: 2\n    host:\n" +
+				"      ~: 3\n",
+			wantErr: []string{`{file}:5:5: mapping key "null" already defined at line 4`},
+		},
+		{
+			// An alias in a mapping the library does not construct is not a candidate.
+			name: "an alias in a mapping with a repeated null key",
+			content: "---\nglobal:\n  timeout: &t 30\nstorage:\n  keys:\n    b2_id: *t\n" +
+				"    null: x\n    null: y\n",
+			wantErr: []string{
+				"{file}:3:12: global.timeout: invalid duration: want a number with a unit, " +
+					"such as 30s",
+				`{file}:8:5: mapping key "null" already defined at line 7`,
+			},
+		},
+		{
+			// The keys of a mapping with a repeated key in another such mapping are not
+			// candidates either.
+			name: "a mapping with a repeated key in another one",
+			content: "---\ntemplates:\n  d: &d\n    name: a\n    name: b\nglobal:\n" +
+				"  retry:\n    bad: *d\n    null: x\n    null: y\nstorage: *d\n",
+			wantErr: []string{
+				`{file}:5:5: storage.name: mapping key "name" already defined at line 4`,
+				`{file}:10:5: mapping key "null" already defined at line 9`,
+			},
+		},
+		{
+			// The key that holds a mapping with a repeated key is in a mapping the library
+			// constructs.
+			name: "an unknown key with a repeated key in its value",
+			content: "---\ntemplates:\n  t: &t\n    port: 1\ntargets:\n  - <<: *t\n" +
+				"    keys:\n      null: 1\n      null: 2\n      surplus: 3\n",
+			wantErr: []string{
+				"{file}:7:5: targets[0].keys: field keys not found in type config.targetItem",
+			},
+		},
+		{
+			// A key of a dropped mapping keeps its path when the local key of the same name
+			// holds a mapping with a repeated key.
+			name: "a dropped mapping and a local mapping with a repeated key",
+			content: "---\ntemplates:\n  r: &r\n    keys: a\n    keys: b\nstorage:\n" +
+				"  <<: *r\n  keys:\n    b2_id: 'plain:x'\n    b2_id: 'plain:y'\n",
+			wantErr: []string{
+				`{file}:5:5: storage.keys: mapping key "keys" already defined at line 4`,
+				`{file}:10:5: storage.keys.b2_id: mapping key "b2_id" already defined at line 9`,
+			},
+		},
+		{
+			// The library reports a value of an alias to a mapping on the way at its anchor,
+			// where the mapping is too.
+			name: "an alias to a mapping on the way",
+			content: "---\nglobal: &g {timeout: *g}\nprune:\n  keep: &k [*k]\nstorage:\n" +
+				"  keys: &s {x: *s}\n",
+			wantErr: []string{
+				"{file}:2:9: cannot construct !!map into string",
+				"{file}:4:9: cannot construct !!seq into string",
+				"{file}:6:9: cannot construct !!map into secret.Ref",
+			},
+		},
+		{
+			// The library does not construct the value of an unknown key, so the alias in it
+			// is not a candidate, whichever of them comes first.
+			name: "an alias under an unknown key",
+			content: "---\ntemplates:\n  t: &t {bogus: 1}\nglobal:\n  extra: *t\n" +
+				"vault: *t\n",
+			wantErr: []string{
+				"{file}:3:10: vault.bogus: field bogus not found in type config.Vault",
+				"{file}:5:3: global.extra: field extra not found in type config.Global",
+			},
+		},
+		{
+			name: "an alias under a later unknown key",
+			content: "---\ntemplates:\n  t: &t {bogus: 1}\nvault: *t\nglobal:\n" +
+				"  extra: *t\n",
+			wantErr: []string{
+				"{file}:3:10: vault.bogus: field bogus not found in type config.Vault",
+				"{file}:6:3: global.extra: field extra not found in type config.Global",
+			},
+		},
+		{
+			// An unknown key given again is not under the first one.
+			name: "an unknown key given again",
+			content: "---\ntemplates:\n  k: &k bogus\n  t: &t {bogus: 1}\nglobal:\n" +
+				"  bogus: *t\n  *k : *t\nvault: *t\n",
+			wantErr: []string{
+				"{file}:4:10: vault.bogus: field bogus not found in type config.Vault",
+				"{file}:6:3: global.bogus: field bogus not found in type config.Global",
+				"{file}:7:3: global.bogus: field bogus not found in type config.Global",
+			},
+		},
+		{
+			name:    "an unknown key given again after an alias",
+			content: "---\ntemplates:\n  b: &b bogus\nstorage:\n  *b : 1\n  bogus: 2\n",
+			wantErr: []string{
+				"{file}:5:3: storage.bogus: field bogus not found in type config.Storage",
+				"{file}:6:3: storage.bogus: field bogus not found in type config.Storage",
+			},
+		},
+		{
+			// The library does not construct the value of a field set again, so an alias in
+			// it is not a candidate, whatever the first value holds.
+			name: "an alias in a field set again",
+			content: "---\ntemplates:\n  g: &g global\n  t: &t {bogus: 1}\n" +
+				"global: {bogus: 2}\n*g : *t\nvault: *t\n",
+			wantErr: []string{
+				"{file}:4:10: vault.bogus: field bogus not found in type config.Vault",
+				"{file}:5:10: global.bogus: field bogus not found in type config.Global",
+				"{file}:6:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			name: "an alias in a later field set again",
+			content: "---\ntemplates:\n  g: &g global\n  t: &t {bogus: 1}\nvault: *t\n" +
+				"global: {instance: a}\n*g : *t\n",
+			wantErr: []string{
+				"{file}:4:10: vault.bogus: field bogus not found in type config.Vault",
+				"{file}:7:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			name: "a repeated key in a field set again",
+			content: "---\ntemplates:\n  g: &g global\n  t: &t {bogus: 1, bogus: 2}\n" +
+				"global: {bogus: 3}\n*g : *t\nvault: *t\n",
+			wantErr: []string{
+				"{file}:4:20: vault.bogus: mapping key \"bogus\" already defined at line 4",
+				"{file}:5:10: global.bogus: field bogus not found in type config.Global",
+				"{file}:6:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			name: "a merged repeated key in a field set again",
+			content: "---\ntemplates:\n  g: &g global\n  r: &r {bogus: 2, bogus: 3}\n" +
+				"global: {bogus: 4}\n*g : {<<: *r}\nvault: *r\n",
+			wantErr: []string{
+				"{file}:4:20: vault.bogus: mapping key \"bogus\" already defined at line 4",
+				"{file}:5:10: global.bogus: field bogus not found in type config.Global",
+				"{file}:6:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			name: "a wrong value in a field set again",
+			content: "---\ntemplates:\n  g: &g global\n  t: &t {timeout: abc}\n" +
+				"global: {instance: a}\n*g : *t\nvault: *t\n",
+			wantErr: []string{
+				"{file}:4:19: vault.timeout: invalid duration: want a number with a unit, " +
+					"such as 30s",
+				"{file}:6:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			name: "the same alias in a field set again",
+			content: "---\ntemplates:\n  g: &g global\n  t: &t {timeout: abc}\n" +
+				"global: *t\n*g : *t\n",
+			wantErr: []string{
+				"{file}:4:19: global.timeout: invalid duration: want a number with a unit, " +
+					"such as 30s",
+				"{file}:6:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			name: "a list in a field set again",
+			content: "---\ntemplates:\n  e: &e {bogus: 1}\n  k: &k targets\n" +
+				"targets: [*e]\n*k : [*e]\n",
+			wantErr: []string{
+				"{file}:3:10: targets[0].bogus: field bogus not found in type config.targetItem",
+				"{file}:6:1: targets: field targets already set in type config.configFile",
+			},
+		},
+		{
+			// A repeated key in a value the library does not construct hides nothing.
+			name: "a repeated key only in a field set again",
+			content: "---\ntemplates:\n  g: &g global\n  t: &t {bogus: 1, bogus: 2}\n" +
+				"global: {timeout: abc}\n*g : *t\n",
+			wantErr: []string{
+				"{file}:5:19: global.timeout: invalid duration: want a number with a unit, " +
+					"such as 30s",
+				"{file}:6:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			name: "a null key before a repeated key in a field set again",
+			content: "---\ntemplates:\n  g: &g global\n  t: &t {bogus: 1, bogus: 2}\n" +
+				"global: {null: 1}\n*g : *t\n",
+			wantErr: []string{
+				"{file}:5:10: global: null key is not allowed",
+				"{file}:6:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			name: "a repeated key in a value of a field set again",
+			content: "---\ntemplates:\n  g: &g global\n" +
+				"  t: &t {retry: {x: 1}, bogus: 1, bogus: 2}\nglobal:\n" +
+				"  retry: {bogus: 1, bogus: 2}\n*g : *t\n",
+			wantErr: []string{
+				"{file}:6:21: global.retry.bogus: mapping key \"bogus\" already defined at " +
+					"line 6",
+				"{file}:7:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			// Whether a mapping hides its keys by a repeated key is known only after the
+			// fields set again are found, so no candidate is taken before.
+			name: "fields set again with repeated keys",
+			content: "---\ntemplates:\n  g: &g global\n  s: &s storage\n" +
+				"  k: &k max_retries_time\n  M: &M {max_retries_time: 2s, *k: 1}\n" +
+				"storage:\n  name: *M\n*s : {bogus: 1, bogus: 2}\nglobal:\n  retry: *M\n" +
+				"*g : {bogus: 1, bogus: 2}\n",
+			wantErr: []string{
+				"{file}:6:6: cannot construct !!map into string",
+				"{file}:6:32: field max_retries_time already set in type config.Retry",
+				"{file}:9:1: storage: field storage already set in type config.configFile",
+				"{file}:12:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			// The library constructs a key that is not a string and reports a repeated key
+			// in it, an unknown key found later hides the only other candidate.
+			name: "a repeated key in a key that is not a string",
+			content: "---\ntemplates:\n  a1: &a1 {k1: 1, k1: 2}\nglobal:\n  *a1 : 1\n" +
+				"  name: {k2: *a1}\n",
+			wantErr: []string{
+				"{file}:3:19: mapping key \"k1\" already defined at line 3",
+				"{file}:6:3: global.name: field name not found in type config.Global",
+			},
+		},
+		{
+			name: "a repeated key in a key that is not a string and a field set again",
+			content: "---\ntemplates:\n  a1: &a1 {k1: 1, k1: 2}\n  s: &s storage\n" +
+				"global:\n  *a1 : 1\n  name: {k2: *a1}\nstorage: {}\n*s : {name: *a1}\n",
+			wantErr: []string{
+				"{file}:3:19: mapping key \"k1\" already defined at line 3",
+				"{file}:7:3: global.name: field name not found in type config.Global",
+				"{file}:9:1: storage: field storage already set in type config.configFile",
+			},
+		},
+		{
+			// The value of the field set again is not constructed, so the key that is not a
+			// string is the only other source of the repeated key.
+			name: "a repeated key in a key that is not a string after a field set again",
+			content: "---\ntemplates:\n" +
+				"  a0: &a0 {max_retries_time: 2s, max_retries_time: abc}\n  g: &g global\n" +
+				"storage: *a0\n*g : {}\nglobal: *a0\n*a0 : *g\n",
+			wantErr: []string{
+				"{file}:3:34: mapping key \"max_retries_time\" already defined at line 3",
+				"{file}:7:1: global: field global already set in type config.configFile",
+			},
+		},
+		{
+			// The library constructs the first value of a field set again, not the second.
+			name: "a null key in a field set again",
+			content: "---\ntemplates:\n  k: &k keys\nstorage:\n  keys: {null: x}\n" +
+				"  *k : {}\n",
+			wantErr: []string{
+				"{file}:5:10: storage.keys: null key is not allowed",
+				"{file}:6:3: storage.keys: field keys already set in type config.Storage",
+			},
+		},
+		{
+			name: "a null key merged into the first value of a field set again",
+			content: "---\ntemplates:\n  k: &k keys\n  t: &t {null: y}\nstorage:\n" +
+				"  keys: {<<: *t}\n  *k : {a: b}\n",
+			wantErr: []string{
+				"{file}:4:10: storage.keys: null key is not allowed",
+				"{file}:7:3: storage.keys: field keys already set in type config.Storage",
+			},
+		},
+		{
+			name: "a null key merged into a field set again",
+			content: "---\ntemplates:\n  k: &k keys\n  t: &t {null: y}\nstorage:\n" +
+				"  keys: {a: b}\n  *k : {<<: *t}\n",
+			wantErr: []string{
+				"{file}:7:3: storage.keys: field keys already set in type config.Storage",
+			},
+		},
+		{
+			name:    "an empty unknown key",
+			content: "---\nstorage:\n  '': 1\ntargets:\n  - name: a\n    '': 2\n",
+			wantErr: []string{
+				"{file}:3:3: storage[\"\"]: field  not found in type config.Storage",
+				"{file}:6:5: targets[0][\"\"]: field  not found in type config.targetItem",
+			},
+		},
+		{
+			// A problem at a key that is not a string has no path, the mapping that starts at
+			// the key is not constructed either.
+			name: "keys that are not strings",
+			content: "---\nstorage:\n  [a]: x\n  {a: b}: y\nglobal:\n  instance:\n" +
+				"    [a]: x\n    null: y\n",
+			wantErr: []string{
+				"{file}:3:3: cannot construct !!seq into string",
+				"{file}:4:3: cannot construct !!map into string",
+				"{file}:7:5: cannot construct !!map into string",
+			},
+		},
+		{
+			name: "null keys in a value of a wrong type",
+			content: "---\nglobal:\n  instance:\n    null: x\nprune:\n  keep:\n" +
+				"    - null: y\n",
+			wantErr: []string{
+				"{file}:4:5: global.instance: cannot construct !!map into string",
+				"{file}:7:7: prune.keep[0]: cannot construct",
+			},
+		},
+		{
+			// The same position goes in the order of assignment: the root, the targets,
+			// then the sources, not in the order of the file.
+			name: "template in every scope",
+			content: "---\ntemplates:\n  t: &t\n    bogus: 1\ntargets:\n  - <<: *t\n" +
+				"    name: a\n    sources:\n      - <<: *t\n        type: test\n" +
+				"  - <<: *t\n    name: b\nglobal:\n  <<: *t\n",
+			wantErr: []string{
+				"{file}:4:5: global.bogus: field bogus not found in type config.Global",
+				"{file}:4:5: targets[0].bogus: field bogus not found in type config.targetItem",
+				"{file}:4:5: targets[1].bogus: field bogus not found in type config.targetItem",
+				"{file}:4:5: targets[0].sources[0].bogus: field bogus not found in type",
+			},
+		},
+		{
+			// The local key overrides the template, the library skips the template value.
+			name: "alias of an overridden template value",
+			content: "---\ntemplates:\n  t: &t {timeout: &x 30}\nglobal:\n  <<: *t\n" +
+				"  timeout: 1h\nvault:\n  timeout: *x\n",
+			wantErr: []string{"{file}:3:19: vault.timeout: invalid duration"},
 		},
 		{
 			name: "values stay out of messages",
@@ -323,13 +962,16 @@ func TestLoad(t *testing.T) {
 				"  test_restore_bytes: 'https://user:secret@example.com'\ntargets:\n" +
 				"  - name: a\n    sources:\n      - type: 'https://user:secret@example.com'\n",
 			wantErr: []string{
-				"{file}:3:14: invalid log level: want one of debug, info, warn, error",
-				"{file}:4:15: invalid log format: want one of text, json",
-				"{file}:5:12: invalid duration: want a number with a unit, such as 30s",
-				"{file}:7:12: cannot construct !!str into int",
-				"{file}:8:9: cannot construct !!str into map[string]secret.Ref",
-				"{file}:10:23: invalid size: want digits with an optional K, M, G or T suffix",
-				"{file}:14:9: unknown source type",
+				"{file}:3:14: global.log_level: invalid log level: want one of debug, info, warn, " +
+					"error",
+				"{file}:4:15: global.log_format: invalid log format: want one of text, json",
+				"{file}:5:12: global.timeout: invalid duration: want a number with a unit, " +
+					"such as 30s",
+				"{file}:7:12: storage.threads: cannot construct !!str into int",
+				"{file}:8:9: storage.keys: cannot construct !!str into map[string]secret.Ref",
+				"{file}:10:23: check.test_restore_bytes: invalid size: want digits with an " +
+					"optional K, M, G or T suffix",
+				"{file}:14:15: targets[0].sources[0].type: unknown source type",
 			},
 			hidden: "@example.com",
 		},
@@ -344,7 +986,7 @@ func TestLoad(t *testing.T) {
 			content: "---\nstorage:\n  password: !<tag:example.invalid,2026:secret%20ref> " +
 				"'fake-pw'\n",
 			wantErr: []string{
-				"{file}:3:13: cannot construct tag:example.invalid,2026:secret ref into secret.Ref",
+				"{file}:3:13: storage.password: cannot construct tag:example.invalid,2026:secret ref",
 			},
 			hidden: "fake-pw",
 		},
@@ -352,27 +994,34 @@ func TestLoad(t *testing.T) {
 			name: "value after a tag with a backtick",
 			content: "---\nstorage:\n  password: !<tag:example.invalid,2026:a%20%60b> " +
 				"'fake-pw'\n",
-			wantErr: []string{"{file}:3:13: cannot construct tag:example.invalid,2026:a into"},
-			hidden:  "fake-pw",
+			wantErr: []string{
+				"{file}:3:13: storage.password: cannot construct tag:example.invalid,2026:a into",
+			},
+			hidden: "fake-pw",
 		},
 		{
 			name: "template key in two targets",
 			content: "---\ntemplates:\n  tpl: &tpl\n    transport: ssh\n    bogus: 1\n" +
 				"targets:\n  - <<: *tpl\n    name: a\n  - <<: *tpl\n    name: b\n",
-			wantErr: []string{"{file}:5:5: field bogus not found in type config.targetItem"},
+			wantErr: []string{
+				"{file}:5:5: targets[0].bogus: field bogus not found in type config.targetItem",
+				"{file}:5:5: targets[1].bogus: field bogus not found in type config.targetItem",
+			},
 		},
 		{
 			name: "two merge keys",
 			content: "---\ntemplates:\n  a: &a\n    port: 1\n  b: &b\n    user: u\n" +
 				"targets:\n  - name: x\n    <<: *a\n    <<: *b\n",
-			wantErr: []string{`{file}:10:5: mapping key "<<" already defined at line 9`},
+			wantErr: []string{
+				`{file}:10:5: targets[0]: mapping key "<<" already defined at line 9`,
+			},
 		},
 		{
 			name: "fatal error stops decoding",
 			content: "---\ntargets:\n  - name: a\n    extra: 1\n  - name: b\n    <<: 1\n" +
 				"  - name: c\n    extra: 2\n",
 			wantErr: []string{
-				"{file}:4:5: field extra not found in type config.targetItem",
+				"{file}:4:5: targets[0].extra: field extra not found in type config.targetItem",
 				"{file}:6:9: map merge requires map or sequence of maps as the value",
 			},
 		},
@@ -389,9 +1038,9 @@ func TestLoad(t *testing.T) {
 			content: "---\ntargets:\n  - name: a\n    extra: 1\nglobal:\n  timeout: 30\n" +
 				"  bogus: 1\n",
 			wantErr: []string{
-				"{file}:4:5: field extra not found",
-				"{file}:6:12: invalid duration",
-				"{file}:7:3: field bogus not found in type config.Global",
+				"{file}:4:5: targets[0].extra: field extra not found",
+				"{file}:6:12: global.timeout: invalid duration",
+				"{file}:7:3: global.bogus: field bogus not found in type config.Global",
 			},
 		},
 		{
@@ -401,14 +1050,14 @@ func TestLoad(t *testing.T) {
 				"      - type: [test]\n      - type: null\n      - type: test\n" +
 				"        id: x\n        id: y\n      - type: ''\n      - [type]\n",
 			wantErr: []string{
-				"{file}:5:9: unknown source type",
-				"{file}:6:9: source type is required",
-				"{file}:8:9: field extra not found in type config.testSource",
-				"{file}:9:15: cannot construct !!seq into string",
-				"{file}:10:9: source type is required",
-				`{file}:13:9: mapping key "id" already defined at line 12`,
-				"{file}:14:9: source type is required",
-				"{file}:15:9: cannot construct !!seq into config.sourceHead",
+				"{file}:5:15: targets[0].sources[0].type: unknown source type",
+				"{file}:6:9: targets[0].sources[1]: source type is required",
+				"{file}:8:9: targets[0].sources[2].extra: field extra not found in type",
+				"{file}:9:15: targets[0].sources[3].type: cannot construct !!seq into string",
+				"{file}:10:9: targets[0].sources[4]: source type is required",
+				`{file}:13:9: targets[0].sources[5].id: mapping key "id" already defined`,
+				"{file}:14:15: targets[0].sources[6].type: unknown source type",
+				"{file}:15:9: targets[0].sources[7]: cannot construct !!seq into config.sourceHead",
 			},
 		},
 		{
@@ -437,6 +1086,18 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"{file}: file is larger than 1048576 bytes"},
 		},
 		{
+			name:    "empty path",
+			noFile:  true,
+			wantErr: []string{"configuration path is empty"},
+		},
+		{
+			name: "link and parent",
+			// filepath.Join would clean the path before Load.
+			args: args{path: link + string(filepath.Separator) + ".." +
+				string(filepath.Separator) + "main.yaml"},
+			want: defaults(),
+		},
+		{
 			name:    "missing file",
 			args:    args{path: "/nonexistent/main.yaml"},
 			wantErr: []string{"/nonexistent/main.yaml: open: no such file or directory"},
@@ -450,7 +1111,7 @@ func TestLoad(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := tt.args.path
-			if tt.content != "" || path == "" {
+			if (tt.content != "" || path == "") && !tt.noFile {
 				path = filepath.Join(t.TempDir(), "main.yaml")
 				if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
 					t.Fatal(err)
@@ -469,7 +1130,10 @@ func TestLoad(t *testing.T) {
 				if !errors.As(err, &cfgErr) {
 					t.Fatalf("Load() error type = %T, want *Error", err)
 				}
-				file, _ := filepath.Abs(path)
+				file := ""
+				if path != "" {
+					file, _ = filepath.Abs(path)
+				}
 				lines := strings.Split(err.Error(), "\n")
 				if len(lines) != len(tt.wantErr) || len(cfgErr.Problems) != len(lines) {
 					t.Fatalf("Load() error = %q, want %d problems", err, len(tt.wantErr))
@@ -491,13 +1155,94 @@ func TestLoad(t *testing.T) {
 			if got.Root == nil || got.Root.Kind != yaml.DocumentNode {
 				t.Errorf("Load() Root = %v, want a document node", got.Root)
 			}
-			if got.LogLevelSet != tt.wantLevelSet || got.LogFormatSet != tt.wantFormatSet {
-				t.Errorf("Load() LogLevelSet, LogFormatSet = %v, %v, want %v, %v",
-					got.LogLevelSet, got.LogFormatSet, tt.wantLevelSet, tt.wantFormatSet)
+			if got.HasValue("global.log_level") != tt.wantLevelSet ||
+				got.HasValue("global.log_format") != tt.wantFormatSet {
+				t.Errorf("Load() HasValue of log_level, log_format = %v, %v, want %v, %v",
+					got.HasValue("global.log_level"), got.HasValue("global.log_format"),
+					tt.wantLevelSet, tt.wantFormatSet)
 			}
 			got.Config.Templates = yaml.Node{}
 			if !reflect.DeepEqual(got.Config, tt.want) {
 				t.Errorf("Load() Config = %+v, want %+v", got.Config, tt.want)
+			}
+		})
+	}
+}
+
+func Test_loader_loadDocument(t *testing.T) {
+	// A list has no repeated keys to check, so the library decodes a long one quickly.
+	keep := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	for range indexBudget {
+		keep.Content = append(keep.Content, scalar("1:7"))
+	}
+	large := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
+		Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{scalar("prune"), {
+			Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{scalar("keep"), keep},
+		}},
+	}}}
+	// The unknown key is indexed before the budget runs out, still it gets no path, and
+	// the null key in its value is not reported.
+	bogus := scalar("bogus")
+	bogus.Line, bogus.Column = 2, 1
+	null := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null", Line: 3,
+		Column: 3}
+	exhausted := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
+		Kind: yaml.MappingNode, Tag: "!!map", Content: append([]*yaml.Node{bogus, {
+			Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{null, scalar("1")},
+		}}, large.Content[0].Content...),
+	}}}
+	// The null key is the only problem, and an incomplete index drops it.
+	nullOnly := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
+		Kind: yaml.MappingNode, Tag: "!!map", Content: append([]*yaml.Node{null,
+			scalar("1")}, large.Content[0].Content...),
+	}}}
+	small := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
+		Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{scalar("storage"), {
+			Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{scalar("keys"),
+				fanOut(1, 0)},
+		}},
+	}}}
+	type args struct {
+		doc *yaml.Node
+	}
+	tests := []struct {
+		name string
+		args args
+		// wantLoaded reports a loaded configuration.
+		wantLoaded bool
+		want1      []Problem
+	}{
+		{
+			name:  "too large to index",
+			args:  args{doc: large},
+			want1: []Problem{{Line: 1, Column: 1, Message: "configuration is too large to index"}},
+		},
+		{
+			name: "no paths over the budget",
+			args: args{doc: exhausted},
+			want1: []Problem{{Line: 2, Column: 1,
+				Message: "field bogus not found in type config.configFile"}},
+		},
+		{
+			name:  "only null keys over the budget",
+			args:  args{doc: nullOnly},
+			want1: []Problem{{Line: 1, Column: 1, Message: "configuration is too large to index"}},
+		},
+		{
+			name:       "in the budget",
+			args:       args{doc: small},
+			wantLoaded: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1 := newLoader().loadDocument(tt.args.doc)
+			if (got != nil) != tt.wantLoaded {
+				t.Errorf("loader.loadDocument() got = %v, want a configuration %v", got,
+					tt.wantLoaded)
+			}
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("loader.loadDocument() got1 = %v, want %v", got1, tt.want1)
 			}
 		})
 	}

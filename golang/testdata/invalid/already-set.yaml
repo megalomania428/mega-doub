@@ -1,0 +1,6 @@
+---
+templates:
+  k: &k name
+storage:
+  name: a
+  *k : b

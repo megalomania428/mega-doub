@@ -1,0 +1,6 @@
+---
+targets:
+  - name: logs
+    transport: local
+    sources:
+      - id: no-type

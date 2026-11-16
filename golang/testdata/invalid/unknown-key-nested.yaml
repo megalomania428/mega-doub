@@ -1,0 +1,5 @@
+---
+global:
+  retry:
+    max_retries_time: 2m
+    bogus: 1

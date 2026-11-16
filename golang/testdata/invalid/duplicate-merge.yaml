@@ -1,0 +1,8 @@
+---
+templates:
+  a: &a { port: 22 }
+  b: &b { user: root }
+targets:
+  - name: dup
+    <<: *a
+    <<: *b

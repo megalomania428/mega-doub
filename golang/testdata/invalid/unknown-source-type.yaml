@@ -1,0 +1,6 @@
+---
+targets:
+  - name: data
+    transport: local
+    sources:
+      - type: bogus
