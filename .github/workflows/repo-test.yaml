@@ -62,6 +62,10 @@ jobs:
           expect 2 bogus
           expect 2 backup --bogus
           expect 0 config validate -c testdata/example.yaml
+          (
+            export MAX_RETRIES_TIME=bogus
+            expect 2 config validate -c testdata/example.yaml
+          ) || exit 1
           expect 2 config validate -c testdata/invalid/unknown-key-root.yaml
           expect 0 config show -c testdata/example.yaml
           # The env: references of example.yaml resolve to fake values.

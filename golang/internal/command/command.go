@@ -55,6 +55,11 @@ func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int
 	// The logger is replaced in place, so the records that cli.Execute writes after the
 	// handler, such as interrupted, follow the same settings.
 	*env.Logger = *logging.New(env.Stderr, inv.Global.LogLevel, inv.Global.LogFormat)
+	// The overrides were applied while loading, before the logger followed the file.
+	for _, o := range loaded.RetryEnv {
+		env.Logger.Debug("retry option from environment", "variable", o.Variable,
+			"value", o.Value)
+	}
 	// The records carry the absolute path of the configuration.
 	inv.Global.Config = loaded.Path
 	result := config.Validate(loaded)
