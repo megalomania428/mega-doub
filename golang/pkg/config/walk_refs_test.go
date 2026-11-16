@@ -43,7 +43,7 @@ func TestWalkRefs(t *testing.T) {
 				{"storage.keys.b2_key", "plain:fake-b2-key"},
 				{"targets[0].key", "file:/root/.ssh/fake_ed25519"},
 				{"targets[0].key_passphrase", "env:MEGA_DOUB_FULL_PASSPHRASE"},
-				{"targets[0].password", "plain:fake-password"},
+				{"targets[0].password", "fake-password"},
 				{"targets[0].sources[0].token", "plain:fake-source-token"},
 			},
 		},

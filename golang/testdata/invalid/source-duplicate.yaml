@@ -1,0 +1,21 @@
+---
+# Identifiers of the sources and the problems that the source type reports.
+storage:
+  url: 'b2://sources-bucket/mega-doub'
+  snapshot_id: sources-main
+  password: 'env:MEGA_DOUB_SOURCES_STORAGE_PASSWORD'
+targets:
+  - name: first
+    transport: local
+    sources:
+      - {type: test, id: '..', path: /srv/dots}
+      - {type: test, id: '-x', path: /srv/dash}
+      - {type: test, id: app, path: /srv/app1}
+      - {type: test, id: app, path: /srv/app2}
+      - {type: test, id: app, path: /srv/app3}
+      - {type: test, id: '', path: /srv/empty}
+      - {type: test, id: rel, path: srv/rel}
+  - name: second
+    transport: local
+    sources:
+      - {type: test, id: app, path: /srv/app4}

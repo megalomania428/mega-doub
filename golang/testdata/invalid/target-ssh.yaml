@@ -1,0 +1,32 @@
+---
+# Rules of ssh targets; a value merged from a template is reported in the template.
+# The targets have no sources, so a build without the test source type loads the file.
+templates:
+  wrong-port: &wrong-port
+    port: 0
+storage:
+  url: 'b2://ssh-bucket/mega-doub'
+  snapshot_id: ssh-main
+  password: 'env:MEGA_DOUB_SSH_STORAGE_PASSWORD'
+targets:
+  - name: bare
+    transport: ssh
+    auth: []
+    key_passphrase: ''
+    known_hosts: etc/ssh/known_hosts
+    connect_timeout: 0s
+  - <<: *wrong-port
+    name: methods
+    transport: ssh
+    host: methods.example.invalid
+    user: backup
+    auth: ['key', 'password', 'otp', 'key', 'otp']
+    password: ''
+    known_hosts: /etc/ssh/methods_known_hosts
+  - name: passphrase
+    transport: ssh
+    host: passphrase.example.invalid
+    user: backup
+    key_passphrase: 'env:MEGA_DOUB_SSH_PASSPHRASE'
+  - {name: ftp, transport: ftp}
+  - {name: none}
