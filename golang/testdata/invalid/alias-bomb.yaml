@@ -1,0 +1,15 @@
+---
+# Every level merges the previous one nine times, the target expands it.
+templates:
+  a: &a { port: 1 }
+  b0: &b0 { <<: [*a, *a, *a, *a, *a, *a, *a, *a, *a] }
+  b1: &b1 { <<: [*b0, *b0, *b0, *b0, *b0, *b0, *b0, *b0, *b0] }
+  b2: &b2 { <<: [*b1, *b1, *b1, *b1, *b1, *b1, *b1, *b1, *b1] }
+  b3: &b3 { <<: [*b2, *b2, *b2, *b2, *b2, *b2, *b2, *b2, *b2] }
+  b4: &b4 { <<: [*b3, *b3, *b3, *b3, *b3, *b3, *b3, *b3, *b3] }
+  b5: &b5 { <<: [*b4, *b4, *b4, *b4, *b4, *b4, *b4, *b4, *b4] }
+  b6: &b6 { <<: [*b5, *b5, *b5, *b5, *b5, *b5, *b5, *b5, *b5] }
+  b7: &b7 { <<: [*b6, *b6, *b6, *b6, *b6, *b6, *b6, *b6, *b6] }
+targets:
+  - name: bomb
+    <<: *b7

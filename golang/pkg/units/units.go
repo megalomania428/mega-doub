@@ -38,3 +38,17 @@ func ParseSize(s string) (int64, error) {
 	}
 	return v << shift, nil
 }
+
+// FormatSize writes n with the largest K, M, G or T suffix that divides it exactly,
+// so ParseSize of the result returns a non-negative n again.
+func FormatSize(n int64) string {
+	for _, unit := range []struct {
+		suffix string
+		shift  uint
+	}{{"T", 40}, {"G", 30}, {"M", 20}, {"K", 10}} {
+		if n != 0 && n%(1<<unit.shift) == 0 {
+			return strconv.FormatInt(n>>unit.shift, 10) + unit.suffix
+		}
+	}
+	return strconv.FormatInt(n, 10)
+}

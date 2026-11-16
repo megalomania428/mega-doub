@@ -1,0 +1,3 @@
+---
+# Configuration examples quote strings with special characters in single quotes.
+singleQuote: true
