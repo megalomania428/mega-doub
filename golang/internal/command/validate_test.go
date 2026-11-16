@@ -1,6 +1,6 @@
 // cspell:ignore doub
 
-package main
+package command
 
 import (
 	"bytes"
@@ -146,7 +146,7 @@ func Test_handle_validate(t *testing.T) {
 			ctx, stop := context.WithCancel(t.Context())
 			defer stop()
 			handler := func(ctx context.Context, inv cli.Invocation, env cli.Env) int {
-				code := handle(ctx, inv, env)
+				code := New(Deps{})(ctx, inv, env)
 				if tt.cancel {
 					stop()
 				}
@@ -252,8 +252,8 @@ func Test_handle_validate_warnings(t *testing.T) {
 		want []warning
 	}{
 		{name: "full", path: full, want: []warning{
-			{"storage.url", 29, 8, "url contains a password"},
-			{"targets[0].password", 60, 15, "value without prefix is treated as plain"},
+			{"storage.url", 30, 8, "url contains a password"},
+			{"targets[0].password", 61, 15, "value without prefix is treated as plain"},
 		}},
 		{name: "value without prefix and no sources", path: unprefixed, want: []warning{
 			{"storage.password", 5, 13, "value without prefix is treated as plain"},
@@ -269,7 +269,7 @@ func Test_handle_validate_warnings(t *testing.T) {
 			args := []string{"config", "validate", "--log-level", "debug", "--log-format",
 				"json", "-c", tt.path}
 			if got := cli.Execute(t.Context(), args, stdout, stderr, cli.Build{},
-				handle); got != 0 {
+				New(Deps{})); got != 0 {
 				t.Errorf("cli.Execute() = %v, want 0", got)
 			}
 			text := stderr.String()

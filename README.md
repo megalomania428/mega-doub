@@ -26,7 +26,7 @@ Commands:
 - `verify [--revision N] [--bytes SIZE]` – verify a revision by a test restore: revision `0` is the latest one, `SIZE` is a number with an optional `K`, `M`, `G` or `T` suffix;
 - `list [--revision N]` – list revisions in the storage, revision `0` lists all of them;
 - `config validate` – validate the configuration file;
-- `config show` – show the effective configuration;
+- `config show` – print the effective configuration with the secrets masked, see [Output](#output);
 - `version` – print `mega-doub <version> (<commit>)`, same as `--version` given without a command;
 - `help [command]` – print help, same as `--help` and `-h`.
 
@@ -36,7 +36,7 @@ Global flags are accepted before and after the command name:
 - `--log-level` – `debug`, `info`, `warn` or `error`, `info` by default;
 - `--log-format` – `text` or `json`, `text` by default;
 - `--no-progress` – disable progress output;
-- `--dry-run` – plan the run without changes.
+- `--dry-run` – plan the run without changes; for now `backup`, `prune`, `check`, `verify` and `list` only log their invocation and print the configuration, see [Output](#output).
 
 ## Configuration
 
@@ -82,10 +82,16 @@ A secret field – `vault.token`, `storage.password`, the values of `storage.key
 
 The values are not resolved yet.
 
+## Output
+
+`mega-doub config show` prints the configuration that the commands use as one YAML document that starts with `---`: the defaults are filled in, the anchors and `<<` are resolved, the `templates` section is left out and a `local` target has no ssh fields. The keys follow the order of the configuration above and the keys of `storage.keys` are sorted, durations are written as `12h0m0s` and sizes as `1536K` or `256M`; a size that looks like a number is quoted, such as `'0'` or `'100'`, and is read back with or without quotes. The commands `backup`, `prune`, `check`, `verify` and `list` are stubs for now: each checks the file the same way, logs `level=INFO msg=command` with the fields `command`, `config`, `dry_run`, `log_level`, `log_format`, `no_progress`, the effective values of the flags of the command and `enabled` for `prune` and `check`, and prints the same output. With `--dry-run` it then logs `level=INFO msg="dry run, nothing to do"` and exits with `0`, otherwise it logs `level=ERROR msg="command is not implemented yet"` and exits with `3`. `mega-doub config validate` prints nothing to stdout and writes no `msg=command` record: it logs the warnings and the problems of the file and, for a valid file, `level=INFO msg="configuration is valid"`. Every command writes a record only when its level is not below the log level: `warn` leaves out the `INFO` records, `error` leaves out the warnings too. An invalid file gives no output, a failed write of the output and an output larger than the limit of 1 MiB (1048576 bytes) for a configuration file, which would not load again and is not printed, are logged as `level=ERROR msg="output write failed"` with the field `error` and give the exit code `2`.
+
+The output masks the secrets: a non-empty `plain:` reference and a value without a prefix become `plain:***`, while the `env:`, `file:` and `vault:` references are printed as they are, and the password in the user information of `storage.url` and `vault.address`, an empty one included, becomes `***`, such as `sftp://user:***@host/path`. The output with `plain:***` is not meant to be run as it is: the value of such a secret becomes `***`. Only the password in the user information is masked: secrets in the query or the fragment of a URL are not supported and are not masked. The user information ends before the first `/`, `?` or `#` after `://`, so these characters in a password must be percent-encoded, such as `%23` for `#`: otherwise the rest of the password is read as the host, the path, the query or the fragment and is not masked.
+
 ## Exit codes
 
-- `0` – success, help, version or a valid configuration for `config validate`;
-- `2` – invalid invocation or configuration: no command, unknown command or flag, extra argument, invalid flag value, unreadable or invalid configuration file;
+- `0` – success, help, version, a valid configuration for `config validate`, the output of `config show` or a dry run;
+- `2` – invalid invocation or configuration: no command, unknown command or flag, extra argument, invalid flag value, unreadable or invalid configuration file, a failed write of the output or an output larger than 1048576 bytes;
 - `3` – the command is not implemented yet;
 - `4` – interrupted by a signal before or during the command.
 

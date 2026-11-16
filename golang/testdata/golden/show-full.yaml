@@ -1,0 +1,69 @@
+---
+# jscpd:ignore-start
+global:
+  instance: full
+  copy_dir: /srv/mega-doub/copy
+  state_dir: /srv/mega-doub/state
+  parallel_targets: 8
+  parallel_sources: 3
+  log_level: debug
+  log_format: json
+  progress: never
+  timeout: 6h30m0s
+  retry:
+    max_retries_time: 2m0s
+    backoff_initial: 2s
+    backoff_step: 3s
+    backoff_step_attempts: 5
+    backoff_cap: 30s
+vault:
+  address: https://vault.example.invalid:8200
+  token: file:/run/secrets/fake-vault-token
+  timeout: 45s
+  ca_file: /usr/local/share/ca-certificates/fake-vault.crt
+storage:
+  name: offsite
+  url: sftp://u:***@h.example.invalid/full
+  snapshot_id: full-main
+  password: vault:depot/mega-doub/full/storage-password
+  threads: 16
+  tag: full mega-doub
+  keys:
+    b2_id: vault:depot/mega-doub/full/b2-id
+    b2_key: plain:***
+prune:
+  enabled: true
+  keep:
+    - 0:365
+    - '7:30'
+    - '1:7'
+  threads: 2
+  exclusive: true
+check:
+  enabled: true
+  every: 24h0m0s
+  chunks: true
+  files: true
+  test_restore: true
+  test_restore_bytes: 1536K
+targets:
+  - name: db02
+    transport: ssh
+    host: db02.example.invalid
+    port: 2200
+    user: backup
+    auth:
+      - key
+      - password
+    key: file:/root/.ssh/fake_ed25519
+    key_passphrase: env:MEGA_DOUB_FULL_PASSPHRASE
+    password: plain:***
+    known_hosts: /etc/ssh/fake_known_hosts
+    connect_timeout: 15s
+    sudo: true
+    sources:
+      - type: test
+        id: test-main
+        path: /srv/data
+        token: plain:***
+# jscpd:ignore-end

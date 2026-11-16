@@ -27,7 +27,7 @@ const (
 // Config is the whole configuration file.
 type Config struct {
 	// Templates holds anchors for reuse, its content is not checked by itself.
-	Templates yaml.Node `yaml:"templates"`
+	Templates yaml.Node `yaml:"templates,omitempty"`
 	Global    Global    `yaml:"global"`
 	Vault     Vault     `yaml:"vault"`
 	Storage   Storage   `yaml:"storage"`

@@ -1,0 +1,4 @@
+---
+# Golden files are compared byte by byte and cannot hold checkov:skip comments.
+skip-path:
+  - '(^|/)golang/testdata/golden/'

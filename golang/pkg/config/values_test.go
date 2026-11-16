@@ -91,6 +91,7 @@ func TestSize_UnmarshalYAML(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "bytes", text: "100", want: 100},
+		{name: "quoted bytes", text: "'100'", want: 100},
 		{name: "zero", text: "0", want: 0},
 		{name: "K suffix", text: "1536K", want: 1536 << 10},
 		{name: "M suffix", text: "256M", want: 256 << 20},
@@ -118,8 +119,8 @@ func TestSize_MarshalYAML(t *testing.T) {
 		s    Size
 		want string
 	}{
-		{name: "zero", s: 0, want: "0"},
-		{name: "bytes", s: 100, want: "100"},
+		{name: "zero", s: 0, want: "'0'"},
+		{name: "bytes", s: 100, want: "'100'"},
 		{name: "K suffix", s: 1536 << 10, want: "1536K"},
 		{name: "M suffix", s: 256 << 20, want: "256M"},
 		{name: "G suffix", s: 4 << 30, want: "4G"},

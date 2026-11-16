@@ -41,10 +41,12 @@ type Global struct {
 	DryRunSet     bool
 }
 
-// Check holds the flags of the check command.
+// Check holds the flags of the check command; FilesSet and ChunksSet mark explicit flags.
 type Check struct {
-	Files  bool
-	Chunks bool
+	Files     bool
+	FilesSet  bool
+	Chunks    bool
+	ChunksSet bool
 }
 
 // Verify holds the flags of the verify command; zero Revision means the latest one.
@@ -265,6 +267,8 @@ func (p *parser) run(cmd *cobra.Command, _ []string) error {
 	inv.Global.LogFormatSet = flags.Changed("log-format")
 	inv.Global.NoProgressSet = flags.Changed("no-progress")
 	inv.Global.DryRunSet = flags.Changed("dry-run")
+	inv.Check.FilesSet = flags.Changed("files")
+	inv.Check.ChunksSet = flags.Changed("chunks")
 	p.logger = logging.New(p.stderr, inv.Global.LogLevel, inv.Global.LogFormat)
 	env := Env{Stdout: p.stdout, Stderr: p.stderr, Logger: p.logger}
 	p.code = p.handler(cmd.Context(), inv, env)

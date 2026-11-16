@@ -1,4 +1,5 @@
 ---
+# jscpd:ignore-start
 templates:
   unused:
     any_key: templates are not checked until used
@@ -67,3 +68,4 @@ targets:
         path: /srv/data
         # checkov:skip=CKV_SECRET_6: the secret reference is fake
         token: 'plain:fake-source-token'
+# jscpd:ignore-end
