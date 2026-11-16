@@ -1,4 +1,4 @@
-// cspell:ignore doub
+// cspell:ignore doub duplicacy
 
 package config_test
 
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,6 +19,28 @@ func ownPath(path string) bool {
 	return path == "global" || strings.HasPrefix(path, "global.")
 }
 
+// ownSections are the sections of the rules of vault, storage, prune and check.
+var ownSections = []string{"vault", "storage", "prune", "check"}
+
+// sectionWarnings are the warnings of the rules of the sections; the other warnings on
+// their paths, such as the ones of the secret references, are not compared.
+var sectionWarnings = []string{"vault token is sent in clear text",
+	"url contains a password"}
+
+// owned tells whether the path belongs to one of the sections, or to global and
+// global.retry without sections.
+func owned(path string, sections []string) bool {
+	if len(sections) == 0 {
+		return ownPath(path)
+	}
+	for _, s := range sections {
+		if path == s || strings.HasPrefix(path, s+".") {
+			return true
+		}
+	}
+	return false
+}
+
 func TestValidate(t *testing.T) {
 	// want is one expected problem: the path, the position and a part of the message.
 	type want struct {
@@ -26,12 +49,30 @@ func TestValidate(t *testing.T) {
 		msg          string
 	}
 	const invalid = "../../testdata/invalid/"
+	// base is a valid storage section of five lines before the section of a test.
+	const base = "---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n" +
+		"  password: env:PASSWORD\n"
+	// address returns a document with the vault address at 7:12.
+	address := func(s string) string { return base + "vault:\n  address: '" + s + "'\n" }
+	// storage returns a document with the storage URL at 3:8.
+	storage := func(s string) string {
+		return "---\nstorage:\n  url: '" + s + "'\n  snapshot_id: main\n" +
+			"  password: env:PASSWORD\n"
+	}
+	// vaultRequired are the problems of a vault: reference without the vault section.
+	vaultRequired := []want{{"vault.address", 1, 1, "required"},
+		{"vault.token", 1, 1, "required"}}
 	tests := []struct {
 		name string
 		// path is a file of testdata, content is written to a temporary file instead.
 		path    string
 		content string
-		want    []want
+		// sections select the compared paths, global and global.retry when empty.
+		sections []string
+		want     []want
+		warnings []want
+		// hidden is a value that no compared message contains.
+		hidden string
 	}{
 		{name: "example", path: "../../testdata/example.yaml"},
 		{name: "full", path: "../../testdata/full.yaml"},
@@ -199,6 +240,365 @@ func TestValidate(t *testing.T) {
 			content: "---\nglobal:\n  state_dir: /var/lib/mega-doub\n",
 			want:    []want{{"global.copy_dir", 2, 1, "must not be inside global.state_dir"}},
 		},
+		{name: "example sections", path: "../../testdata/example.yaml", sections: ownSections},
+		{
+			name: "full sections", path: "../../testdata/full.yaml", sections: ownSections,
+			warnings: []want{{"storage.url", 29, 8, "url contains a password"}},
+			hidden:   "fake-url-password",
+		},
+		{
+			name: "vault missing", path: invalid + "vault-missing.yaml", sections: ownSections,
+			want: []want{{"vault.address", 7, 1, "required"}, {"vault.token", 7, 1, "required"}},
+		},
+		{
+			name: "vault token vault", path: invalid + "vault-token-vault.yaml",
+			sections: ownSections,
+			want:     []want{{"vault.token", 9, 10, "must not be a vault: reference"}},
+		},
+		{
+			name: "vault values", path: invalid + "vault-values.yaml", sections: ownSections,
+			want: []want{
+				{"vault.address", 8, 12, "must not contain a path"},
+				{"vault.timeout", 9, 12, "must be greater than zero"},
+				{"vault.ca_file", 10, 12, `"certs/vault.crt" must be an absolute path`},
+			},
+			hidden: "vault.example.invalid",
+		},
+		{
+			name: "storage values", path: invalid + "storage-values.yaml", sections: ownSections,
+			want: []want{
+				{"storage.password", 4, 1, "required"},
+				{"storage.name", 5, 9, `"SSH" is reserved by duplicacy`},
+				{"storage.url", 6, 8, "must be a URL with a scheme and a host"},
+				{"storage.snapshot_id", 7, 16, `"storage main" must match ^[A-Za-z0-9_-]+$`},
+				{"storage.threads", 8, 12, "must be at least 1"},
+				{`storage.keys[""]`, 10, 9, "required"},
+			},
+			hidden: "b2:bucket",
+		},
+		{
+			name: "prune keep", path: invalid + "prune-keep.yaml", sections: ownSections,
+			want: []want{
+				{"prune.threads", 9, 12, "must be at least 1"},
+				{"prune.keep[0]", 11, 7, `"0:0" must have an age m of at least 1`},
+				{"prune.keep[1]", 12, 7, `"1:0" must have an age m of at least 1`},
+				{"prune.keep[2]", 13, 7, `" 1:7" must have the form n:m`},
+				{"prune.keep[3]", 14, 7, `"99999999999999999999:5" is out of range`},
+				{"prune.keep[4]", 15, 7, `"7" must have the form n:m`},
+			},
+		},
+		{
+			name: "prune order", path: invalid + "prune-order.yaml", sections: ownSections,
+			want: []want{
+				{"prune.keep[1]", 9, 18, `"3:44" must have an age m below the previous one`},
+				{"prune.keep[2]", 9, 26, `"1:44" must have an age m below the previous one`},
+				{"prune.keep[4]", 9, 42, `"0:60" must have an age m below the previous one`},
+			},
+		},
+		{
+			name: "check values", path: invalid + "check-values.yaml", sections: ownSections,
+			want: []want{{"check.every", 8, 10, "must not be negative"}},
+		},
+		{
+			name: "vault reference in storage.password",
+			content: "---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n" +
+				"  password: vault:a/b/c\n",
+			sections: ownSections,
+			want:     vaultRequired,
+		},
+		{
+			// The prefix counts as written, the syntax of the reference is not checked.
+			name:     "malformed vault reference",
+			content:  base + "targets:\n  - name: here\n    key_passphrase: vault:x\n",
+			sections: ownSections,
+			want:     vaultRequired,
+		},
+		{
+			name:     "vault reference in vault.token is not counted",
+			content:  base + "vault:\n  token: vault:a/b/c\n",
+			sections: ownSections,
+			want:     []want{{"vault.token", 7, 10, "must not be a vault: reference"}},
+		},
+		{
+			name: "vault reference in a forbidden field of a local target is not counted",
+			content: base + "targets:\n  - name: here\n    transport: local\n" +
+				"    key_passphrase: vault:a/b/c\n",
+			sections: ownSections,
+		},
+		{
+			name:     "vault reference in a target without transport",
+			content:  base + "targets:\n  - name: here\n    key_passphrase: vault:a/b/c\n",
+			sections: ownSections,
+			want:     vaultRequired,
+		},
+		{
+			name: "vault reference in an ftp target",
+			content: base + "targets:\n  - name: here\n    transport: ftp\n" +
+				"    key_passphrase: vault:a/b/c\n",
+			sections: ownSections,
+			want:     vaultRequired,
+		},
+		{
+			name: "http address", content: address("http://vault.example.invalid"),
+			sections: ownSections,
+			warnings: []want{{"vault.address", 7, 12, "vault token is sent in clear text"}},
+			hidden:   "vault.example.invalid",
+		},
+		{
+			name: "upper case http address", content: address("HTTP://vault.example.invalid"),
+			sections: ownSections,
+			warnings: []want{{"vault.address", 7, 12, "vault token is sent in clear text"}},
+			hidden:   "vault.example.invalid",
+		},
+		{name: "https address", content: address("https://h"), sections: ownSections},
+		{name: "address with a slash", content: address("https://h/"), sections: ownSections},
+		{name: "upper case https address", content: address("HTTPS://h"),
+			sections: ownSections},
+		{name: "address with a port", content: address("https://[::1]:8200"),
+			sections: ownSections},
+		{name: "address with an empty port", content: address("https://h:"),
+			sections: ownSections},
+		{
+			name: "opaque address", content: address("https:h"), sections: ownSections,
+			want:   []want{{"vault.address", 7, 12, "must have // before the host"}},
+			hidden: "https:h",
+		},
+		{
+			name: "address without a host", content: address("https:///x"),
+			sections: ownSections,
+			want:     []want{{"vault.address", 7, 12, "must have a host"}},
+			hidden:   "https:///x",
+		},
+		{
+			name: "address with a user", content: address("https://u@h"),
+			sections: ownSections,
+			want:     []want{{"vault.address", 7, 12, "must not contain user information"}},
+			hidden:   "https://u@h",
+		},
+		{
+			name: "address with a path", content: address("https://h/x"), sections: ownSections,
+			want:   []want{{"vault.address", 7, 12, "must not contain a path"}},
+			hidden: "https://h/x",
+		},
+		{
+			name: "address with an empty query", content: address("https://h?"),
+			sections: ownSections,
+			want:     []want{{"vault.address", 7, 12, "must not contain a query or a fragment"}},
+			hidden:   "https://h?",
+		},
+		{
+			name: "address with an empty fragment", content: address("https://h#"),
+			sections: ownSections,
+			want:     []want{{"vault.address", 7, 12, "must not contain a query or a fragment"}},
+			hidden:   "https://h#",
+		},
+		{
+			name: "address with a query", content: address("https://h?a=1"),
+			sections: ownSections,
+			want:     []want{{"vault.address", 7, 12, "must not contain a query or a fragment"}},
+			hidden:   "https://h?a=1",
+		},
+		{
+			name: "address with port 0", content: address("https://h:0"), sections: ownSections,
+			want:   []want{{"vault.address", 7, 12, "must have a port from 1 to 65535"}},
+			hidden: "https://h:0",
+		},
+		{
+			name: "address with port 65536", content: address("https://h:65536"),
+			sections: ownSections,
+			want:     []want{{"vault.address", 7, 12, "must have a port from 1 to 65535"}},
+			hidden:   "https://h:65536",
+		},
+		{
+			name: "ftp address", content: address("ftp://h"), sections: ownSections,
+			want:   []want{{"vault.address", 7, 12, "must use http or https"}},
+			hidden: "ftp://h",
+		},
+		{
+			name: "address without a scheme", content: address("h"), sections: ownSections,
+			want: []want{{"vault.address", 7, 12, "must use http or https"}},
+		},
+		{
+			// An empty string in an optional field means not set.
+			name:     "empty vault values",
+			content:  base + "vault:\n  address: ''\n  ca_file: ''\n",
+			sections: ownSections,
+		},
+		{name: "bucket url", content: storage("b2://bucket/prefix"), sections: ownSections},
+		{name: "sftp url with a user", content: storage("sftp://u@h.example.invalid/x"),
+			sections: ownSections},
+		{name: "url with a user without a password", content: storage("sftp://u@h/x"),
+			sections: ownSections},
+		{
+			name: "windows path url", content: storage(`C:\backup`), sections: ownSections,
+			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			hidden: `C:\backup`,
+		},
+		{
+			name: "host and port url", content: storage("localhost:8080/x"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			hidden:   "localhost:8080/x",
+		},
+		{
+			name: "absolute path url", content: storage("/abs/path"), sections: ownSections,
+			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			hidden: "/abs/path",
+		},
+		{
+			name: "opaque url", content: storage("file:opaque"), sections: ownSections,
+			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			hidden: "file:opaque",
+		},
+		{
+			name: "url without a host", content: storage("sftp:///x"), sections: ownSections,
+			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			hidden: "sftp:///x",
+		},
+		{
+			name: "url without a scheme", content: storage("://x"), sections: ownSections,
+			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			hidden: "://x",
+		},
+		{
+			name: "url with a password", content: storage("sftp://u:p@h/x"),
+			sections: ownSections,
+			warnings: []want{{"storage.url", 3, 8, "url contains a password"}},
+			hidden:   "u:p@h",
+		},
+		{
+			name: "url with a password without a host", content: storage("sftp://u:p@/x"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			warnings: []want{{"storage.url", 3, 8, "url contains a password"}},
+			hidden:   "u:p@",
+		},
+		{
+			name: "url with an empty password", content: storage("sftp://u:@h/x"),
+			sections: ownSections,
+			warnings: []want{{"storage.url", 3, 8, "url contains a password"}},
+			hidden:   "u:@h",
+		},
+		{
+			// An empty required value gives required only, without the checks of its format.
+			name: "empty url", content: storage(""), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "required"}},
+		},
+		{
+			name: "empty snapshot id",
+			content: "---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: ''\n" +
+				"  password: env:PASSWORD\n",
+			sections: ownSections,
+			want:     []want{{"storage.snapshot_id", 4, 16, "required"}},
+		},
+		{
+			name:     "missing snapshot id",
+			content:  "---\nstorage:\n  url: b2://bucket/prefix\n  password: env:PASSWORD\n",
+			sections: ownSections,
+			want:     []want{{"storage.snapshot_id", 2, 1, "required"}},
+		},
+		{
+			name: "missing storage", content: "---\nglobal: {}\n", sections: ownSections,
+			want: []want{
+				{"storage.url", 1, 1, "required"},
+				{"storage.snapshot_id", 1, 1, "required"},
+				{"storage.password", 1, 1, "required"},
+			},
+		},
+		{
+			name: "empty storage name",
+			content: "---\nstorage:\n  name: ''\n  url: b2://bucket/prefix\n" +
+				"  snapshot_id: main\n  password: env:PASSWORD\n",
+			sections: ownSections,
+			want:     []want{{"storage.name", 3, 9, "must not be empty"}},
+		},
+		{
+			name: "lower case ssh storage name",
+			content: "---\nstorage:\n  name: ssh\n  url: b2://bucket/prefix\n" +
+				"  snapshot_id: main\n  password: env:PASSWORD\n",
+			sections: ownSections,
+			want:     []want{{"storage.name", 3, 9, `"ssh" is reserved by duplicacy`}},
+		},
+		{
+			name:     "empty key values",
+			content:  base + "  keys:\n    b2_id: ''\n    b2_key: null\n    '': env:KEY\n",
+			sections: ownSections,
+			want: []want{
+				{"storage.keys.b2_id", 7, 12, "required"},
+				{"storage.keys.b2_key", 8, 13, "required"},
+				{`storage.keys[""]`, 9, 9, "required"},
+			},
+		},
+		{
+			name:     "empty key name and value",
+			content:  base + "  keys:\n    '': ''\n",
+			sections: ownSections,
+			want:     []want{{`storage.keys[""]`, 7, 9, "required"}},
+		},
+		{
+			name: "keep of the general document",
+			content: base + "prune:\n  enabled: true\n" +
+				"  keep: ['0:755', '33:386', '22:144', '9:44', '3:11', '1:1']\n",
+			sections: ownSections,
+		},
+		{
+			name:     "enabled prune without keep",
+			content:  base + "prune:\n  enabled: true\n",
+			sections: ownSections,
+			want:     []want{{"prune.keep", 6, 1, "must not be empty when prune is enabled"}},
+		},
+		{
+			name:     "enabled prune with an empty keep",
+			content:  base + "prune:\n  enabled: true\n  keep: []\n",
+			sections: ownSections,
+			want:     []want{{"prune.keep", 8, 9, "must not be empty when prune is enabled"}},
+		},
+		{
+			name:     "keep format of a disabled prune",
+			content:  base + "prune:\n  keep: ['x']\n",
+			sections: ownSections,
+			want:     []want{{"prune.keep[0]", 7, 10, `"x" must have the form n:m`}},
+		},
+		{
+			name:     "increasing ages",
+			content:  base + "prune:\n  keep: ['1:7', '1:30']\n",
+			sections: ownSections,
+			want: []want{
+				{"prune.keep[1]", 7, 17, `"1:30" must have an age m below the previous one`},
+			},
+		},
+		{
+			// An element with an invalid age remains the previous parsed element.
+			name:     "invalid age remains previous before a valid age",
+			content:  base + "prune:\n  keep: ['1:0', '0:5']\n",
+			sections: ownSections,
+			want: []want{
+				{"prune.keep[0]", 7, 10, `"1:0" must have an age m of at least 1`},
+				{"prune.keep[1]", 7, 17, `"0:5" must have an age m below the previous one`},
+			},
+		},
+		{
+			name:     "invalid ages take priority over order",
+			content:  base + "prune:\n  keep: ['0:0', '1:0']\n",
+			sections: ownSections,
+			want: []want{
+				{"prune.keep[0]", 7, 10, `"0:0" must have an age m of at least 1`},
+				{"prune.keep[1]", 7, 17, `"1:0" must have an age m of at least 1`},
+			},
+		},
+		{
+			name:     "enabled check with zero every",
+			content:  base + "check:\n  enabled: true\n  every: 0\n",
+			sections: ownSections,
+			want: []want{
+				{"check.every", 8, 10, "must be greater than zero when check is enabled"},
+			},
+		},
+		{
+			name:     "disabled check with zero every",
+			content:  base + "check:\n  every: 0\n",
+			sections: ownSections,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -219,29 +619,37 @@ func TestValidate(t *testing.T) {
 			}
 			result := config.Validate(loaded)
 			checkErr(t, result)
-			for _, w := range result.Warnings {
-				if ownPath(w.Path) {
-					t.Errorf("Validate() warning %v, want none", w)
-				}
-			}
-			var got []config.Problem
+			var problems, warnings []config.Problem
 			for _, p := range result.Problems {
-				if ownPath(p.Path) {
-					got = append(got, p)
+				if owned(p.Path, tt.sections) {
+					problems = append(problems, p)
 				}
 			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("Validate() problems = %v, want %d", got, len(tt.want))
-			}
-			for i, w := range tt.want {
-				p := got[i]
-				if p.File != file || p.Path != w.path || p.Line != w.line ||
-					p.Column != w.column || !strings.Contains(p.Message, w.msg) ||
-					strings.Contains(p.Message, `""`) {
-					t.Errorf("Validate() problem %d = %v, want %s:%d:%d: %s: …%s…", i, p,
-						file, w.line, w.column, w.path, w.msg)
+			for _, w := range result.Warnings {
+				if owned(w.Path, tt.sections) &&
+					(len(tt.sections) == 0 || slices.Contains(sectionWarnings, w.Message)) {
+					warnings = append(warnings, w)
 				}
 			}
+			compare := func(kind string, got []config.Problem, wants []want) {
+				t.Helper()
+				if len(got) != len(wants) {
+					t.Fatalf("Validate() %s = %v, want %d", kind, got, len(wants))
+				}
+				for i, w := range wants {
+					p := got[i]
+					if p.File != file || p.Path != w.path || p.Line != w.line ||
+						p.Column != w.column || !strings.Contains(p.Message, w.msg) ||
+						strings.Contains(p.Message, `""`) ||
+						strings.Contains(p.Message, "://") ||
+						tt.hidden != "" && strings.Contains(p.Message, tt.hidden) {
+						t.Errorf("Validate() %s %d = %v, want %s:%d:%d: %s: …%s…", kind, i, p,
+							file, w.line, w.column, w.path, w.msg)
+					}
+				}
+			}
+			compare("problem", problems, tt.want)
+			compare("warning", warnings, tt.warnings)
 		})
 	}
 }

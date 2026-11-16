@@ -1,0 +1,10 @@
+---
+# Values out of the rules of the storage section, one problem per key; the password
+# is missing.
+storage:
+  name: SSH
+  url: 'b2:bucket'
+  snapshot_id: 'storage main'
+  threads: 0
+  keys:
+    '': 'env:MEGA_DOUB_STORAGE_KEY'

@@ -124,7 +124,7 @@ func fullConfig() *config.Config {
 		},
 		Storage: config.Storage{
 			Name:       "offsite",
-			URL:        "b2://fake-bucket/full",
+			URL:        "sftp://u:fake-url-password@h.example.invalid/full",
 			SnapshotID: "full-main",
 			Password:   "vault:depot/mega-doub/full/storage-password",
 			Threads:    16,

@@ -1,0 +1,8 @@
+---
+# A vault: reference outside vault.token makes vault.address and vault.token required.
+storage:
+  url: 'b2://missing-bucket/mega-doub'
+  snapshot_id: missing-main
+  password: 'vault:depot/mega-doub/missing/storage-password'
+vault:
+  timeout: 10s

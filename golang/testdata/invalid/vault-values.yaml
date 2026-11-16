@@ -1,0 +1,10 @@
+---
+# Values out of the rules of the vault section, one problem per key.
+storage:
+  url: 'b2://vault-bucket/mega-doub'
+  snapshot_id: vault-main
+  password: 'env:MEGA_DOUB_VAULT_STORAGE_PASSWORD'
+vault:
+  address: 'https://vault.example.invalid/v1'
+  timeout: 0s
+  ca_file: certs/vault.crt

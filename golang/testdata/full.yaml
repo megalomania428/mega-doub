@@ -26,7 +26,7 @@ vault:
   ca_file: /usr/local/share/ca-certificates/fake-vault.crt
 storage:
   name: offsite
-  url: 'b2://fake-bucket/full'
+  url: 'sftp://u:fake-url-password@h.example.invalid/full'
   snapshot_id: full-main
   # checkov:skip=CKV_SECRET_6: the secret reference is fake
   password: 'vault:depot/mega-doub/full/storage-password'

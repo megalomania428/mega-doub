@@ -59,6 +59,22 @@ func globalPlaces(records []record) []place {
 	return places
 }
 
+// warningPlaces returns the places of the warning records of vault and storage.
+func warningPlaces(records []record) []place {
+	var places []place
+	for _, r := range records {
+		path, _ := r["path"].(string)
+		if r["msg"] != "configuration warning" ||
+			!strings.HasPrefix(path, "vault.") && !strings.HasPrefix(path, "storage.") {
+			continue
+		}
+		line, _ := r["line"].(float64)
+		column, _ := r["column"].(float64)
+		places = append(places, place{Path: path, Line: line, Column: column})
+	}
+	return places
+}
+
 // values are the places of global-values.yaml.
 var values = []place{
 	{"global.instance", 8, 13},
@@ -71,7 +87,8 @@ var values = []place{
 // secrets are the URLs and the secret references of the files of the tests, they never
 // appear in the records.
 var secrets = []string{"b2://values-bucket", "MEGA_DOUB_VALUES_STORAGE_PASSWORD",
-	"b2://example-bucket", "MEGA_DOUB_EXAMPLE"}
+	"b2://example-bucket", "MEGA_DOUB_EXAMPLE", "vault.example.invalid",
+	"fake-warn-password", "MEGA_DOUB_WARN"}
 
 func Test_handle_validate(t *testing.T) {
 	const (
@@ -83,6 +100,15 @@ func Test_handle_validate(t *testing.T) {
 		0o600); err != nil {
 		t.Fatal(err)
 	}
+	// warned has the warnings of vault.address at 3:12 and of storage.url at 5:8.
+	warned := filepath.Join(t.TempDir(), "warned.yaml")
+	if err := os.WriteFile(warned, []byte("---\nvault:\n"+
+		"  address: 'http://vault.example.invalid'\nstorage:\n"+
+		"  url: 'sftp://u:fake-warn-password@h.example.invalid/x'\n"+
+		"  snapshot_id: warn-main\n  password: 'env:MEGA_DOUB_WARN_STORAGE_PASSWORD'\n"),
+		0o600); err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name string
 		path string
@@ -91,6 +117,8 @@ func Test_handle_validate(t *testing.T) {
 		want   int
 		// wantPlaces are the problem records of global and global.retry in their order.
 		wantPlaces []place
+		// wantWarnings are the warning records of vault and storage in their order.
+		wantWarnings []place
 		// wantTail are the msg of the last records in their order.
 		wantTail []string
 	}{
@@ -98,6 +126,9 @@ func Test_handle_validate(t *testing.T) {
 			wantTail: []string{"invalid configuration"}},
 		{name: "valid", path: example, want: 0,
 			wantTail: []string{"configuration is valid"}},
+		{name: "warnings", path: warned, want: 0,
+			wantWarnings: []place{{"vault.address", 3, 12}, {"storage.url", 5, 8}},
+			wantTail:     []string{"configuration is valid"}},
 		{name: "loading error first", path: mixed, want: 2,
 			wantTail: []string{"invalid configuration"}},
 		{name: "problems and then canceled", path: invalid, cancel: true, want: 4,
@@ -136,6 +167,9 @@ func Test_handle_validate(t *testing.T) {
 			if got := globalPlaces(records); !reflect.DeepEqual(got, tt.wantPlaces) {
 				t.Errorf("cli.Execute() problem records = %v, want %v", got, tt.wantPlaces)
 			}
+			if got := warningPlaces(records); !reflect.DeepEqual(got, tt.wantWarnings) {
+				t.Errorf("cli.Execute() warning records = %v, want %v", got, tt.wantWarnings)
+			}
 			file, err := filepath.Abs(tt.path)
 			if err != nil {
 				t.Fatal(err)
@@ -143,7 +177,7 @@ func Test_handle_validate(t *testing.T) {
 			valid, interrupted := 0, 0
 			for _, r := range records {
 				switch r["msg"] {
-				case "invalid configuration":
+				case "invalid configuration", "configuration warning":
 					if r["file"] != file {
 						t.Errorf("cli.Execute() record file = %v, want %v", r["file"], file)
 					}

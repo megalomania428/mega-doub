@@ -1,14 +1,21 @@
+// cspell:ignore duplicacy
+
 // Package config is documented in config.go.
 package config
 
 import (
 	"fmt"
+	"maps"
 	"math/bits"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/megalomania428/mega-doub/pkg/secret"
 )
 
 // Result holds the problems and the warnings that Validate found, each sorted by
@@ -32,6 +39,10 @@ func Validate(l *Loaded) Result {
 	v := &validator{l: l}
 	v.global()
 	v.retry()
+	v.vault()
+	v.storage()
+	v.prune()
+	v.check()
 	sortProblems(v.problems)
 	sortProblems(v.warnings)
 	return Result{Problems: v.problems, Warnings: v.warnings}
@@ -48,6 +59,13 @@ type validator struct {
 func (v *validator) problem(path, msg string) {
 	line, column := v.position(path)
 	v.problems = append(v.problems, Problem{File: v.l.Path, Line: line, Column: column,
+		Path: path, Message: msg})
+}
+
+// warning records a warning about the field at path at the position of the field.
+func (v *validator) warning(path, msg string) {
+	line, column := v.position(path)
+	v.warnings = append(v.warnings, Problem{File: v.l.Path, Line: line, Column: column,
 		Path: path, Message: msg})
 }
 
@@ -176,4 +194,179 @@ func effective(d Duration, def time.Duration) time.Duration {
 		return def
 	}
 	return time.Duration(d)
+}
+
+// vault checks the vault section. vault.address and vault.token are required when a
+// reference uses Vault, vault.token itself and the fields forbidden for local targets
+// left out.
+func (v *validator) vault() {
+	c := v.l.Config.Vault
+	if v.usesVault() {
+		v.required("vault.address", c.Address)
+		v.required("vault.token", string(c.Token))
+	}
+	if c.Address != "" {
+		scheme, msg := vaultAddress(c.Address)
+		switch {
+		case msg != "":
+			v.problem("vault.address", msg)
+		case scheme == "http":
+			v.warning("vault.address", "vault token is sent in clear text")
+		}
+	}
+	if strings.HasPrefix(string(c.Token), "vault:") {
+		v.problem("vault.token", "must not be a vault: reference")
+	}
+	if c.Timeout <= 0 {
+		v.problem("vault.timeout", "must be greater than zero")
+	}
+	if c.CAFile != "" {
+		v.absolute("vault.ca_file", c.CAFile)
+	}
+}
+
+// usesVault tells whether a reference uses Vault, vault.token and the fields forbidden
+// for local targets left out. The prefix is checked as written, so a malformed vault:
+// reference counts too.
+func (v *validator) usesVault() bool {
+	skip := map[string]bool{"vault.token": true}
+	for i, t := range v.l.Config.Targets {
+		if t.Transport == "local" {
+			for _, field := range []string{"key", "key_passphrase", "password"} {
+				skip[fmt.Sprintf("targets[%d].%s", i, field)] = true
+			}
+		}
+	}
+	uses := false
+	WalkRefs(v.l.Config, func(path string, ref *secret.Ref) {
+		if !skip[path] && strings.HasPrefix(string(*ref), "vault:") {
+			uses = true
+		}
+	})
+	return uses
+}
+
+// vaultAddress checks the Vault address and returns its scheme, or the message of the
+// first failed check. The messages leave out the address and the parse error.
+func vaultAddress(s string) (scheme, msg string) {
+	u, err := url.Parse(s)
+	switch {
+	case err != nil:
+		return "", "must be a valid URL"
+	case u.Scheme != "http" && u.Scheme != "https":
+		return "", "must use http or https"
+	case u.Opaque != "":
+		return "", "must have // before the host"
+	case u.Hostname() == "":
+		return "", "must have a host"
+	case u.User != nil:
+		return "", "must not contain user information"
+	case u.EscapedPath() != "" && u.EscapedPath() != "/":
+		return "", "must not contain a path"
+	case strings.ContainsAny(s, "?#"):
+		// url.URL.ForceQuery hides an empty query, so the string is checked.
+		return "", "must not contain a query or a fragment"
+	}
+	if port := u.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return "", "must have a port from 1 to 65535"
+		}
+	}
+	return u.Scheme, ""
+}
+
+// snapshotID is the pattern of storage.snapshot_id, the one of duplicacy.
+var snapshotID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// storage checks the storage section. The messages leave out the URL and the parse
+// error, they may hold a password.
+func (v *validator) storage() {
+	s := v.l.Config.Storage
+	switch {
+	case s.Name == "":
+		v.problem("storage.name", "must not be empty")
+	case strings.EqualFold(s.Name, "ssh"):
+		v.problem("storage.name", quoted(s.Name)+"is reserved by duplicacy")
+	}
+	if v.required("storage.url", s.URL) {
+		u, err := url.Parse(s.URL)
+		if err != nil || u.Scheme == "" || u.Opaque != "" || u.Host == "" {
+			v.problem("storage.url", "must be a URL with a scheme and a host")
+		}
+		if err == nil && u.User != nil {
+			// An empty password is a password too.
+			if _, ok := u.User.Password(); ok {
+				v.warning("storage.url", "url contains a password")
+			}
+		}
+	}
+	if v.required("storage.snapshot_id", s.SnapshotID) &&
+		!snapshotID.MatchString(s.SnapshotID) {
+		v.problem("storage.snapshot_id",
+			quoted(s.SnapshotID)+"must match "+snapshotID.String())
+	}
+	v.required("storage.password", string(s.Password))
+	if s.Threads < 1 {
+		v.problem("storage.threads", "must be at least 1")
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.Keys)) {
+		path := joinKey("storage.keys", name)
+		if name == "" {
+			v.problem(path, "required")
+			continue
+		}
+		v.required(path, string(s.Keys[name]))
+	}
+}
+
+// retention is the pattern of an element n:m of prune.keep.
+var retention = regexp.MustCompile(`^[0-9]+:[0-9]+$`)
+
+// prune checks the prune section. An element of prune.keep gets at most one problem:
+// its format, a number out of the range of int, its age m below 1 or its age not below
+// the age of the nearest previous element with valid format and numbers in int range.
+func (v *validator) prune() {
+	p := v.l.Config.Prune
+	if p.Enabled && len(p.Keep) == 0 {
+		v.problem("prune.keep", "must not be empty when prune is enabled")
+	}
+	previous, hasPrevious := 0, false
+	for i, keep := range p.Keep {
+		path := fmt.Sprintf("prune.keep[%d]", i)
+		if !retention.MatchString(keep) {
+			v.problem(path, quoted(keep)+"must have the form n:m")
+			continue
+		}
+		n, m, _ := strings.Cut(keep, ":")
+		// duplicacy ignores the error of strconv.Atoi and takes the limit of int.
+		_, errN := strconv.Atoi(n)
+		age, errM := strconv.Atoi(m)
+		switch {
+		case errN != nil || errM != nil:
+			v.problem(path, quoted(keep)+"is out of range")
+			continue
+		case age < 1:
+			v.problem(path, quoted(keep)+"must have an age m of at least 1")
+		case hasPrevious && age >= previous:
+			v.problem(path, quoted(keep)+"must have an age m below the previous one")
+		}
+		previous, hasPrevious = age, true
+	}
+	if p.Threads < 1 {
+		v.problem("prune.threads", "must be at least 1")
+	}
+}
+
+// check checks the check section.
+func (v *validator) check() {
+	c := v.l.Config.Check
+	switch {
+	case c.Every < 0:
+		v.problem("check.every", "must not be negative")
+	case c.Enabled && c.Every == 0:
+		v.problem("check.every", "must be greater than zero when check is enabled")
+	}
+	if c.TestRestoreBytes < 0 {
+		v.problem("check.test_restore_bytes", "must not be negative")
+	}
 }
