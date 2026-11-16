@@ -52,9 +52,9 @@ type entry struct {
 
 // Resolve returns the value of ref, from the cache when it is resolved already. A failure
 // leaves the entry not ready, so the next request reads the source again; the Vault
-// client is the exception, it remembers its own failure to be created. A cancellation
-// of ctx, one that comes while the request waits for the entry included, is returned as
-// the error of ctx.
+// client is the exception, it remembers its own failure to be created and a request that
+// ran out of its retries. A cancellation of ctx, one that comes while the request waits
+// for the entry included, is returned as the error of ctx.
 func (r *resolver) Resolve(ctx context.Context, ref Ref) (Value, error) {
 	if err := ctx.Err(); err != nil {
 		return Value{}, err

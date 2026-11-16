@@ -70,7 +70,8 @@ type VaultOptions struct {
 	// CAFile is the PEM file of the certificates that the client trusts besides the system
 	// ones for an https address; an http address does not use it.
 	CAFile string
-	// Retry holds the options of the retries of the requests, not applied by the client.
+	// Retry holds the schedule of the retries of a request: the zero value selects the
+	// defaults of go-lib-ci, a negative MaxRetriesTime disables the retries.
 	Retry retry.Options
 	// Logger receives the records of the client, nil discards them.
 	Logger *slog.Logger
@@ -106,11 +107,13 @@ func (e *TokenError) Unwrap() error {
 }
 
 // vault reads the vault: references of one run with one client, created at the first
-// reference after the token resolves. A failure to create the client (the token does
-// not resolve, ca_file is broken, the system pool fails) is remembered for the run: the
-// other references get it without a new attempt. This is an exception from the rule of
-// the resolver that a failure is not cached, otherwise every reference would repeat the
-// same failure.
+// reference after the token resolves. Two failures are remembered for the run, and the
+// other references get them without a new attempt: a failure to create the client (the
+// token does not resolve, ca_file is broken, the system pool fails) and a request that
+// ran out of its retries on a failed connection, 429 or 5xx. These are the exceptions
+// from the rule of the resolver that a failure is not cached, otherwise every reference
+// would repeat the same failure and an unavailable Vault would spend the budget of the
+// retries at every reference.
 type vault struct {
 	opts VaultOptions
 	// resolver resolves the token, the resolver of the run by default.
@@ -125,10 +128,15 @@ type vault struct {
 	err    error
 	// mu guards the state of the client only while it is read or written, never during a
 	// request or a call of the resolver: token and tokenErr are the first outcome of the
-	// token, its value or its failure, at most one of them is set.
-	mu       sync.Mutex
-	token    string
-	tokenErr error
+	// token, its value or its failure, at most one of them is set; unavailable is the
+	// error of the request that ran out of its retries.
+	mu          sync.Mutex
+	token       string
+	tokenErr    error
+	unavailable error
+	// requests holds one element while a request runs with its retries, so the requests
+	// go one at a time and a waiting one gives up with its context.
+	requests chan struct{}
 }
 
 // newVault returns the reader of the vault: references of r with the defaults for the
@@ -141,11 +149,15 @@ func newVault(opts VaultOptions, r Resolver) *vault {
 		opts.Logger = slog.New(slog.DiscardHandler)
 	}
 	return &vault{opts: opts, resolver: r, newClient: ci.NewVaultClient,
-		systemPool: x509.SystemCertPool}
+		systemPool: x509.SystemCertPool, requests: make(chan struct{}, 1)}
 }
 
 // read returns the value of the key of the KV version 2 secret at path, the body of a
-// vault: reference. A cancellation of ctx is returned as the error of ctx.
+// vault: reference. The requests go one at a time, each with its retries, so parallel
+// references spend the budget of the retries once; a request that ran out of its retries
+// is remembered, and the next ones get its error without a request. A cancellation of
+// ctx, one that comes while the request waits for its turn included, is returned as the
+// error of ctx and is not remembered.
 func (v *vault) read(ctx context.Context, path string) (string, error) {
 	if v.opts.Address == "" {
 		return "", errVaultNotConfigured
@@ -158,14 +170,32 @@ func (v *vault) read(ctx context.Context, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	value, err := client.ReadVaultKVv2(ctx, ref)
+	select {
+	case v.requests <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-v.requests }()
+	// select takes either case when both are ready: the cancellation goes first.
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if failure := v.unavailableErr(); failure != nil {
+		return "", failure
+	}
+	value, err := client.ReadVaultKVv2(withOperation(ctx, ref), ref)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", ctxErr
+	}
 	if err == nil {
 		return value, nil
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
-		return "", ctxErr
+	err = readError(ref, err)
+	var ee *exhaustedError
+	if errors.As(err, &ee) {
+		v.rememberUnavailable(err)
 	}
-	return "", readError(ref, err)
+	return "", err
 }
 
 // connect returns the client of the run, created with the token at the first call. The
@@ -238,14 +268,22 @@ func validToken(token string) bool {
 }
 
 // create returns the client with the token. Its HTTP client limits every attempt by
-// opts.Timeout instead of a limit of the whole call and follows no redirect: Go keeps the
-// token header on a redirect to another host.
+// opts.Timeout instead of a limit of the whole call, repeats the attempts with the
+// schedule of opts.Retry and follows no redirect: Go keeps the token header on a
+// redirect to another host. The transports go from retryTransport through
+// statusTransport to the *http.Transport of ci.NewHTTPClient.
 func (v *vault) create(token string) (*ci.VaultClient, error) {
 	client := ci.NewHTTPClient(v.opts.Timeout)
-	if err := v.trust(client.Transport); err != nil {
+	base, ok := client.Transport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("vault transport is %T, want *http.Transport", client.Transport)
+	}
+	if err := v.trust(base); err != nil {
 		return nil, err
 	}
-	client.Transport = &statusTransport{next: client.Transport, timeout: v.opts.Timeout}
+	client.Transport = &retryTransport{
+		next: &statusTransport{next: base, timeout: v.opts.Timeout},
+		base: base, opts: v.opts.Retry, logger: v.opts.Logger}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -253,18 +291,14 @@ func (v *vault) create(token string) (*ci.VaultClient, error) {
 		HTTPClient: client})
 }
 
-// trust sets the TLS configuration of rt, the transport of ci.NewHTTPClient, for an
+// trust sets the TLS configuration of base, the transport of ci.NewHTTPClient, for an
 // https address: the protocol version 1.2 at least and the system pool, with the
 // certificates of opts.CAFile besides it when the file is set. The configuration is new,
 // so nothing that http.DefaultTransport holds turns the verification of TLS off. With an
 // http address it reads nothing and changes nothing.
-func (v *vault) trust(rt http.RoundTripper) error {
+func (v *vault) trust(base *http.Transport) error {
 	if u, err := url.Parse(v.opts.Address); err == nil && u.Scheme == "http" {
 		return nil
-	}
-	base, ok := rt.(*http.Transport)
-	if !ok {
-		return fmt.Errorf("vault transport is %T, want *http.Transport", rt)
 	}
 	config := &tls.Config{MinVersion: tls.VersionTLS12} // DevSkim: ignore DS112852
 	if v.opts.CAFile != "" {
