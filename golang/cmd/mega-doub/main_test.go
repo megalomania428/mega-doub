@@ -13,6 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/megalomania428/mega-doub/pkg/config"
+	"github.com/megalomania428/mega-doub/pkg/secret"
 )
 
 func textHandler(w io.Writer, o *slog.HandlerOptions) slog.Handler {
@@ -89,6 +92,18 @@ func Test_run(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The env: references of example.yaml and of the log settings resolve to fake values.
+	loaded, err := config.Load(example)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range config.Refs(loaded.Config) {
+		if parsed, err := secret.Parse(ref.Ref); err == nil && parsed.Kind == secret.KindEnv {
+			value := strings.ReplaceAll(strings.ToLower(parsed.Body), "_", "-")
+			t.Setenv(parsed.Body, "fake-"+value)
+		}
+	}
+	t.Setenv("PASSWORD", "fake-password")
 	// exampleWarnings are the warning records of the targets of example.yaml.
 	exampleWarnings := []string{
 		`level=WARN msg="configuration warning" file=` + slogPath(t, examplePath) +
@@ -132,6 +147,7 @@ func Test_run(t *testing.T) {
 			wantStderr: []string{
 				exampleWarnings[0],
 				exampleWarnings[1],
+				`level=INFO msg="secrets resolved" count=4$`,
 				backup(false),
 				`level=ERROR msg="command is not implemented yet" command=backup$`,
 			},
@@ -144,6 +160,7 @@ func Test_run(t *testing.T) {
 			wantStderr: []string{
 				exampleWarnings[0],
 				exampleWarnings[1],
+				`level=INFO msg="secrets resolved" count=4$`,
 				backup(true),
 				`level=INFO msg="dry run, nothing to do" command=backup$`,
 			},
@@ -230,6 +247,7 @@ func Test_run(t *testing.T) {
 			wantStderr: []string{
 				`level=WARN msg="configuration warning" file=` + slogPath(t, logSettings) +
 					` line=1 column=1 path=targets warning="no targets configured"$`,
+				`level=INFO msg="secrets resolved" count=1$`,
 				`level=INFO msg=command command=backup config=` + slogPath(t, logSettings) +
 					` dry_run=false log_level=info log_format=text no_progress=false$`,
 				`level=ERROR msg="command is not implemented yet" command=backup$`,

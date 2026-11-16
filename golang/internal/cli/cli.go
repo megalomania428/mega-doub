@@ -61,14 +61,20 @@ type List struct {
 	Revision int
 }
 
+// ConfigValidate holds the flags of the config validate command.
+type ConfigValidate struct {
+	Resolve bool
+}
+
 // Invocation is a parsed command line.
 type Invocation struct {
 	// Command is the command path without the binary name, such as "config validate".
-	Command string
-	Global  Global
-	Check   Check
-	Verify  Verify
-	List    List
+	Command        string
+	Global         Global
+	Check          Check
+	Verify         Verify
+	List           List
+	ConfigValidate ConfigValidate
 }
 
 // Env holds the output streams and the logger configured by the global flags.
@@ -133,6 +139,7 @@ type parser struct {
 	verify  revisionValue
 	bytes   sizeValue
 	list    revisionValue
+	resolve bool
 }
 
 func (p *parser) newRoot(build Build) *cobra.Command {
@@ -173,16 +180,15 @@ func (p *parser) newRoot(build Build) *cobra.Command {
 	verify.Flags().Var(&p.bytes, "bytes", "amount of data to restore, such as 256M")
 	list := p.leaf("list", "List revisions in the storage")
 	list.Flags().Var(&p.list, "revision", "revision to list, 0 for all")
+	validate := p.leaf("validate", "Validate the configuration file")
+	validate.Flags().BoolVar(&p.resolve, "resolve", false, "resolve the secret references")
 	config := &cobra.Command{
 		Use:   "config",
 		Short: "Work with the configuration file",
 		Args:  cobra.NoArgs,
 		RunE:  requireCommand,
 	}
-	config.AddCommand(
-		p.leaf("validate", "Validate the configuration file"),
-		p.leaf("show", "Show the effective configuration"),
-	)
+	config.AddCommand(validate, p.leaf("show", "Show the effective configuration"))
 	root.AddCommand(
 		p.leaf("backup", "Back up all targets"),
 		p.leaf("prune", "Prune old revisions in the storage"),
@@ -269,6 +275,7 @@ func (p *parser) run(cmd *cobra.Command, _ []string) error {
 	inv.Global.DryRunSet = flags.Changed("dry-run")
 	inv.Check.FilesSet = flags.Changed("files")
 	inv.Check.ChunksSet = flags.Changed("chunks")
+	inv.ConfigValidate.Resolve = p.resolve
 	p.logger = logging.New(p.stderr, inv.Global.LogLevel, inv.Global.LogFormat)
 	env := Env{Stdout: p.stdout, Stderr: p.stderr, Logger: p.logger}
 	p.code = p.handler(cmd.Context(), inv, env)

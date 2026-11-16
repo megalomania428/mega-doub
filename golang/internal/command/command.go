@@ -4,29 +4,42 @@
 package command
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/megalomania428/mega-doub/internal/cli"
 	"github.com/megalomania428/mega-doub/pkg/config"
 	"github.com/megalomania428/mega-doub/pkg/logging"
 	"github.com/megalomania428/mega-doub/pkg/model"
+	"github.com/megalomania428/mega-doub/pkg/secret"
 )
 
 // Deps holds the dependencies of the commands. They are given explicitly, so the tests
-// and the implementations of the commands substitute their own; there are none yet.
-type Deps struct{}
-
-// New returns the handler of all commands with the given dependencies.
-func New(_ Deps) cli.Handler {
-	return handle
+// and the implementations of the commands substitute their own.
+type Deps struct {
+	// NewResolver returns the secret resolver of one run, secret.New when it is nil.
+	NewResolver func() secret.Resolver
 }
 
-// handle loads and validates the configuration, configures the logger by it and runs
-// the command. Interruption is reported by cli.Execute, the handler keeps its code.
-func handle(_ context.Context, inv cli.Invocation, env cli.Env) int {
+// New returns the handler of all commands with the given dependencies.
+func New(deps Deps) cli.Handler {
+	if deps.NewResolver == nil {
+		deps.NewResolver = secret.New
+	}
+	return func(ctx context.Context, inv cli.Invocation, env cli.Env) int {
+		return handle(ctx, deps, inv, env)
+	}
+}
+
+// handle loads and validates the configuration, configures the logger by it, resolves
+// the secrets and runs the command. config show does not resolve the secrets, config
+// validate does it only with --resolve. Interruption is reported by cli.Execute, the
+// handler keeps its code.
+func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int {
 	loaded, err := config.Load(inv.Global.Config)
 	if err != nil {
 		logProblems(env.Logger, err)
@@ -49,14 +62,87 @@ func handle(_ context.Context, inv cli.Invocation, env cli.Env) int {
 	if len(result.Problems) > 0 {
 		return model.ExitConfig
 	}
-	switch inv.Command {
-	case "config validate":
-		env.Logger.Info("configuration is valid", "config", inv.Global.Config)
-		return model.ExitOK
-	case "config show":
+	if inv.Command == "config show" {
 		return show(env, loaded.Config)
 	}
+	validate := inv.Command == "config validate"
+	if !validate || inv.ConfigValidate.Resolve {
+		if code := resolve(ctx, deps.NewResolver(), loaded, env.Logger); code != model.ExitOK {
+			return code
+		}
+	}
+	if validate {
+		env.Logger.Info("configuration is valid", "config", inv.Global.Config)
+		return model.ExitOK
+	}
 	return stub(inv, env, loaded.Config)
+}
+
+// failure is a secret reference that failed to resolve, line is zero without a position.
+type failure struct {
+	path, kind   string
+	line, column int
+	err          error
+}
+
+// resolve resolves the secret references of the configuration one by one in the order of
+// config.Refs and logs every failure, or the count of the references on success. The
+// values stay in the cache of the resolver. A canceled context stops the loop: the
+// failures before it are logged, cli.Execute reports the interruption. A cancellation
+// during the last reference that resolves is an interruption too, so the command does
+// not run.
+func resolve(ctx context.Context, r secret.Resolver, loaded *config.Loaded,
+	logger *slog.Logger) int {
+	refs := config.Refs(loaded.Config)
+	var failures []failure
+	for _, ref := range refs {
+		if ctx.Err() != nil {
+			break
+		}
+		_, err := r.Resolve(ctx, ref.Ref)
+		if err == nil {
+			continue
+		}
+		// A failure caused by the cancellation is not logged, another one is logged even
+		// when the cancellation comes at the same time.
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			break
+		}
+		// The syntax is valid after config.Validate, the resolver reports a failure itself.
+		parsed, _ := secret.Parse(ref.Ref)
+		f := failure{path: ref.Path, kind: string(parsed.Kind), err: err}
+		if line, column, ok := loaded.ValuePos(ref.Path); ok {
+			f.line, f.column = line, column
+		}
+		failures = append(failures, f)
+	}
+	sortFailures(failures)
+	for _, f := range failures {
+		attrs := []any{"path", f.path, "kind", f.kind, "file", loaded.Path}
+		if f.line > 0 {
+			attrs = append(attrs, "line", f.line, "column", f.column)
+		}
+		logger.Error("secret resolution failed", append(attrs, "error", f.err.Error())...)
+	}
+	switch {
+	case len(failures) > 0:
+		return model.ExitConfig
+	case ctx.Err() != nil:
+		return model.ExitInterrupted
+	}
+	logger.Info("secrets resolved", "count", len(refs))
+	return model.ExitOK
+}
+
+// sortFailures sorts the failures by the position of the value in place: the failures
+// without a position go last, an equal position keeps the order of the references.
+func sortFailures(failures []failure) {
+	slices.SortStableFunc(failures, func(a, b failure) int {
+		if (a.line == 0) != (b.line == 0) {
+			return cmp.Compare(b.line, a.line)
+		}
+		return cmp.Or(cmp.Compare(a.line, b.line), cmp.Compare(a.column, b.column))
+	})
 }
 
 // stub logs the invocation of a command that has no implementation yet with the

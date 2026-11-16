@@ -1,5 +1,5 @@
 # kics-scan disable=555ab8f9-2001-455e-a077-f2d0f41e2fb9
-# cspell:ignore mktemp coverprofile covermode gofmt testdata
+# cspell:ignore mktemp coverprofile covermode gofmt testdata mapfile
 ---
 name: repo test
 on:
@@ -64,6 +64,22 @@ jobs:
           expect 0 config validate -c testdata/example.yaml
           expect 2 config validate -c testdata/invalid/unknown-key-root.yaml
           expect 0 config show -c testdata/example.yaml
+          # The env: references of example.yaml resolve to fake values.
+          mapfile -t names < <(grep -oE 'env:MEGA_DOUB_EXAMPLE_[A-Za-z0-9_]+' \
+            testdata/example.yaml | sed 's/^env://' | sort -u)
+          if [[ "${#names[@]}" -eq 0 ]]; then
+            echo 'no MEGA_DOUB_EXAMPLE_* references found in testdata/example.yaml' >&2
+            exit 1
+          fi
+          for name in "${names[@]}"; do
+            value="${name,,}"
+            export "${name}=fake-${value//_/-}"
+          done
+          expect 0 config validate --resolve -c testdata/example.yaml
+          (
+            unset "${names[@]}"
+            expect 2 config validate --resolve -c testdata/example.yaml
+          ) || exit 1
           expect 0 backup --dry-run -c testdata/example.yaml
           expect 3 backup -c testdata/example.yaml
   linters:
