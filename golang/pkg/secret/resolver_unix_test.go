@@ -30,7 +30,7 @@ func Test_resolver_Resolve_special(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			done := make(chan error, 1)
 			go func() {
-				_, err := New().Resolve(t.Context(), tt.ref)
+				_, err := New(VaultOptions{}).Resolve(t.Context(), tt.ref)
 				done <- err
 			}()
 			select {
@@ -53,7 +53,7 @@ func Test_resolver_Resolve_unreadable(t *testing.T) {
 	if err := os.Chmod(path, 0); err != nil {
 		t.Fatal(err)
 	}
-	_, err := New().Resolve(t.Context(), Ref("file:"+path))
+	_, err := New(VaultOptions{}).Resolve(t.Context(), Ref("file:"+path))
 	if !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("resolver.Resolve() error = %v, want %v", err, os.ErrPermission)
 	}

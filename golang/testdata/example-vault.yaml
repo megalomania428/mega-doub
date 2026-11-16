@@ -1,0 +1,37 @@
+---
+# jscpd:ignore-start
+# Example configuration of mega-doub with the secrets in Vault, see the Secrets section
+# of README.md. The token of Vault is read from the environment variable of its env:
+# reference, every other secret is a vault: reference.
+vault:
+  address: 'https://vault.example.invalid:8200'
+  # checkov:skip=CKV_SECRET_6: the secret reference is fake
+  token: 'env:VAULT_TOKEN'
+  timeout: 2s
+global:
+  instance: example-vault
+storage:
+  url: 'b2://example-bucket/mega-doub-vault'
+  snapshot_id: example-vault
+  # checkov:skip=CKV_SECRET_6: the secret reference is fake
+  password: 'vault:depot/mega-doub/example/storage-password'
+  keys:
+    # checkov:skip=CKV_SECRET_6: the secret reference is fake
+    b2_id: 'vault:depot/mega-doub/example/b2-id'
+    # checkov:skip=CKV_SECRET_6: the secret reference is fake
+    b2_key: 'vault:depot/mega-doub/example/b2-key'
+targets:
+  - name: db01
+    transport: ssh
+    host: db01.example.invalid
+    user: backup
+    auth: ['key', 'password']
+    # checkov:skip=CKV_SECRET_6: the secret reference is fake
+    key: 'vault:depot/mega-doub/example/ssh-key'
+    # checkov:skip=CKV_SECRET_6: the secret reference is fake
+    key_passphrase: 'vault:depot/mega-doub/example/ssh-key-passphrase'
+    # checkov:skip=CKV_SECRET_6: the secret reference is fake
+    password: 'vault:depot/mega-doub/example/ssh-password'
+    known_hosts: /etc/ssh/ssh_known_hosts
+    sources: []
+# jscpd:ignore-end
