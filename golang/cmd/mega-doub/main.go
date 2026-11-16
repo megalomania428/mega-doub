@@ -37,7 +37,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return cli.Execute(ctx, args, stdout, stderr, build, handle)
 }
 
-// handle loads the configuration, configures the logger by it and runs the command.
+// handle loads and validates the configuration, configures the logger by it and runs
+// the command.
 func handle(ctx context.Context, inv cli.Invocation, env cli.Env) int {
 	loaded, err := config.Load(inv.Global.Config)
 	if err != nil {
@@ -57,6 +58,11 @@ func handle(ctx context.Context, inv cli.Invocation, env cli.Env) int {
 	*env.Logger = *logging.New(env.Stderr, level, format)
 	// The records carry the absolute path of the configuration.
 	inv.Global.Config = loaded.Path
+	result := config.Validate(loaded)
+	logResult(env.Logger, result)
+	if len(result.Problems) > 0 {
+		return model.ExitConfig
+	}
 	if inv.Command == "config validate" {
 		env.Logger.Info("configuration is valid", "config", inv.Global.Config)
 		return model.ExitOK
@@ -72,19 +78,35 @@ func logProblems(logger *slog.Logger, err error) {
 		return
 	}
 	for _, p := range cfgErr.Problems {
-		var attrs []any
-		if p.File != "" {
-			attrs = append(attrs, "file", p.File)
-		}
-		if p.Line > 0 {
-			attrs = append(attrs, "line", p.Line, "column", p.Column)
-		}
-		if p.Path != "" {
-			attrs = append(attrs, "path", p.Path)
-		}
-		attrs = append(attrs, "error", p.Message)
-		logger.Error("invalid configuration", attrs...)
+		logger.Error("invalid configuration", problemAttrs(p, "error")...)
 	}
+}
+
+// logResult writes one record per warning of the validation and then one record per
+// problem.
+func logResult(logger *slog.Logger, result config.Result) {
+	for _, w := range result.Warnings {
+		logger.Warn("configuration warning", problemAttrs(w, "warning")...)
+	}
+	for _, p := range result.Problems {
+		logger.Error("invalid configuration", problemAttrs(p, "error")...)
+	}
+}
+
+// problemAttrs returns the fields of the record of a problem with its message in the
+// field key, a field without a value is left out.
+func problemAttrs(p config.Problem, key string) []any {
+	var attrs []any
+	if p.File != "" {
+		attrs = append(attrs, "file", p.File)
+	}
+	if p.Line > 0 {
+		attrs = append(attrs, "line", p.Line, "column", p.Column)
+	}
+	if p.Path != "" {
+		attrs = append(attrs, "path", p.Path)
+	}
+	return append(attrs, key, p.Message)
 }
 
 // notImplemented logs the parsed invocation of a command that has no implementation yet.

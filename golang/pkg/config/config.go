@@ -15,6 +15,15 @@ const (
 	defaultStateDir = "/var/lib/mega-doub/state/"
 )
 
+// Defaults of global.retry, equal to those of go-lib-ci.
+const (
+	defaultMaxRetriesTime      = 111 * time.Second
+	defaultBackoffInitial      = time.Second
+	defaultBackoffStep         = time.Second
+	defaultBackoffStepAttempts = 3
+	defaultBackoffCap          = 7 * time.Second
+)
+
 // Config is the whole configuration file.
 type Config struct {
 	// Templates holds anchors for reuse, its content is not checked by itself.
@@ -41,7 +50,9 @@ type Global struct {
 	Retry           Retry     `yaml:"retry"`
 }
 
-// Retry holds the retry settings, zero values select the library defaults.
+// Retry holds the retry settings with the defaults of go-lib-ci. A zero
+// max_retries_time selects the default and a negative one disables the retries, a zero
+// or negative backoff value selects its default; explicit values are kept as written.
 type Retry struct {
 	MaxRetriesTime      Duration `yaml:"max_retries_time"`
 	BackoffInitial      Duration `yaml:"backoff_initial"`
@@ -121,6 +132,13 @@ func defaultConfig() *Config {
 			LogFormat:       "text",
 			Progress:        "auto",
 			Timeout:         Duration(12 * time.Hour),
+			Retry: Retry{
+				MaxRetriesTime:      Duration(defaultMaxRetriesTime),
+				BackoffInitial:      Duration(defaultBackoffInitial),
+				BackoffStep:         Duration(defaultBackoffStep),
+				BackoffStepAttempts: defaultBackoffStepAttempts,
+				BackoffCap:          Duration(defaultBackoffCap),
+			},
 		},
 		Vault:   Vault{Timeout: Duration(30 * time.Second)},
 		Storage: Storage{Name: "default", Threads: 4, Tag: "mega-doub"},

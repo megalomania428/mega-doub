@@ -47,6 +47,13 @@ func defaults(targets ...config.Target) *config.Config {
 			LogFormat:       "text",
 			Progress:        "auto",
 			Timeout:         config.Duration(12 * time.Hour),
+			Retry: config.Retry{
+				MaxRetriesTime:      config.Duration(111 * time.Second),
+				BackoffInitial:      config.Duration(time.Second),
+				BackoffStep:         config.Duration(time.Second),
+				BackoffStepAttempts: 3,
+				BackoffCap:          config.Duration(7 * time.Second),
+			},
 		},
 		Vault:   config.Vault{Timeout: config.Duration(30 * time.Second)},
 		Storage: config.Storage{Name: "default", Threads: 4, Tag: "mega-doub"},
@@ -171,6 +178,7 @@ func TestLoad(t *testing.T) {
 	zeros.Global.StateDir = "/var/lib/mega-doub/state/"
 	zeros.Global.ParallelTargets = 0
 	zeros.Global.Timeout = 0
+	zeros.Global.Retry.BackoffCap = 0
 	zeros.Storage.Name = ""
 	zeros.Storage.Threads = 0
 	zeros.Check.TestRestoreBytes = 0
@@ -245,7 +253,8 @@ func TestLoad(t *testing.T) {
 		{
 			name: "explicit zero values",
 			content: "---\nglobal:\n  instance: ''\n  copy_dir: ''\n  parallel_targets: 0\n" +
-				"  timeout: 0\nstorage:\n  name: ''\n  threads: 0\nprune:\n  enabled: false\n" +
+				"  timeout: 0\n  retry:\n    backoff_cap: 0s\nstorage:\n  name: ''\n" +
+				"  threads: 0\nprune:\n  enabled: false\n" +
 				"  keep: []\ncheck:\n  test_restore_bytes: 0\ntargets:\n  - name: ''\n" +
 				"    port: 0\n    auth: []\n    connect_timeout: 0s\n    sudo: false\n" +
 				"    sources: []\n",

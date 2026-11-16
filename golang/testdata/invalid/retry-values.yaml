@@ -1,0 +1,13 @@
+---
+# backoff_initial is above the default backoff_cap of 7s; the values of zero and below
+# select the defaults and give no problems.
+storage:
+  url: 'b2://retry-bucket/mega-doub'
+  snapshot_id: retry-main
+  password: 'env:MEGA_DOUB_RETRY_STORAGE_PASSWORD'
+global:
+  retry:
+    max_retries_time: -1s
+    backoff_initial: 10s
+    backoff_step: 0s
+    backoff_step_attempts: -1

@@ -68,13 +68,19 @@ func newError(file string, problems []Problem) *Error {
 			unique = append(unique, p)
 		}
 	}
-	slices.SortStableFunc(unique, func(a, b Problem) int {
+	sortProblems(unique)
+	return &Error{Problems: unique}
+}
+
+// sortProblems sorts the problems by position in place: the problems without a
+// position go last, the same position keeps the order of the input.
+func sortProblems(problems []Problem) {
+	slices.SortStableFunc(problems, func(a, b Problem) int {
 		if (a.Line == 0) != (b.Line == 0) {
 			return cmp.Compare(b.Line, a.Line)
 		}
 		return cmp.Or(cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column))
 	})
-	return &Error{Problems: unique}
 }
 
 // yamlProblems converts an error of the YAML library to problems.
