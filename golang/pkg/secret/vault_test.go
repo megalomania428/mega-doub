@@ -175,11 +175,15 @@ func Test_newVault(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := newVault(tt.args.opts, tt.args.r)
-			// reflect.DeepEqual never matches a function, so newClient is checked apart.
+			// reflect.DeepEqual never matches a function, so newClient and systemPool are
+			// checked apart.
 			if got.newClient == nil {
 				t.Error("newVault().newClient = nil, want ci.NewVaultClient")
 			}
-			got.newClient = nil
+			if got.systemPool == nil {
+				t.Error("newVault().systemPool = nil, want x509.SystemCertPool")
+			}
+			got.newClient, got.systemPool = nil, nil
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("newVault() = %v, want %v", got, tt.want)
 			}
@@ -410,8 +414,11 @@ func Test_resolver_Resolve_vaultToken(t *testing.T) {
 			}
 			clients := countClients(r)
 			_, err := r.Resolve(t.Context(), testVaultRef)
-			if err == nil || !strings.Contains(err.Error(), tt.errHas) {
-				t.Errorf("resolver.Resolve() error = %v, want %q in it", err, tt.errHas)
+			var te *TokenError
+			if !errors.As(err, &te) || err.Error() != "vault token is unresolved" ||
+				!strings.Contains(errors.Unwrap(err).Error(), tt.errHas) {
+				t.Errorf("resolver.Resolve() error = %v, want *TokenError with %q in its cause",
+					err, tt.errHas)
 			}
 			if n := clients.Load(); n != 0 {
 				t.Errorf("resolver.Resolve() created %d clients, want 0", n)

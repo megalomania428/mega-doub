@@ -51,7 +51,8 @@ type entry struct {
 }
 
 // Resolve returns the value of ref, from the cache when it is resolved already. A failure
-// leaves the entry not ready, so the next request reads the source again. A cancellation
+// leaves the entry not ready, so the next request reads the source again; the Vault
+// client is the exception, it remembers its own failure to be created. A cancellation
 // of ctx, one that comes while the request waits for the entry included, is returned as
 // the error of ctx.
 func (r *resolver) Resolve(ctx context.Context, ref Ref) (Value, error) {
@@ -107,17 +108,9 @@ func (r *resolver) lookup(ctx context.Context, ref Ref) (string, error) {
 }
 
 // readFile returns the content of the regular file at path without a leading UTF-8 byte
-// order mark and the surrounding whitespace. The file is opened without blocking: the
-// open of a named pipe without a writer would block forever.
+// order mark and the surrounding whitespace.
 func readFile(path string) (string, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return "", fmt.Errorf("file reference: %w", err)
-	}
-	data, err := readRegular(f, path)
-	if closeErr := f.Close(); err == nil && closeErr != nil {
-		err = fmt.Errorf("file reference: %w", closeErr)
-	}
+	data, err := readRegularFile(path, maxFileSize, "file reference")
 	if err != nil {
 		return "", err
 	}
@@ -128,25 +121,44 @@ func readFile(path string) (string, error) {
 	return value, nil
 }
 
+// readRegularFile returns the content of the regular file at path of at most limit bytes,
+// the errors start with prefix. The file is opened without blocking: the open of a named
+// pipe without a writer would block forever.
+func readRegularFile(path string, limit int64, prefix string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", prefix, err)
+	}
+	data, err := readRegular(f, path, limit, prefix)
+	if closeErr := f.Close(); err == nil && closeErr != nil {
+		err = fmt.Errorf("%s: %w", prefix, closeErr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 // readRegular reads the open file f at path, which must be a regular file of at most
-// maxFileSize bytes; the file may grow after Stat, so the read is limited too.
-func readRegular(f *os.File, path string) ([]byte, error) {
+// limit bytes; the file may grow after Stat, so the read is limited too. The errors start
+// with prefix.
+func readRegular(f *os.File, path string, limit int64, prefix string) ([]byte, error) {
 	info, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("file reference: %w", err)
+		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("file reference: %s is not a regular file", path)
+		return nil, fmt.Errorf("%s: %s is not a regular file", prefix, path)
 	}
-	tooLarge := fmt.Errorf("file reference: %s is larger than %d bytes", path, maxFileSize)
-	if info.Size() > maxFileSize {
+	tooLarge := fmt.Errorf("%s: %s is larger than %d bytes", prefix, path, limit)
+	if info.Size() > limit {
 		return nil, tooLarge
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("file reference: %w", err)
+		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}
-	if len(data) > maxFileSize {
+	if int64(len(data)) > limit {
 		return nil, tooLarge
 	}
 	return data, nil
