@@ -1,5 +1,6 @@
 # kics-scan disable=555ab8f9-2001-455e-a077-f2d0f41e2fb9
 # cspell:ignore mktemp coverprofile covermode gofmt testdata mapfile
+# cspell:ignore gonosumdb goproxy gotoolchain megalipase
 ---
 name: repo test
 on:
@@ -29,6 +30,8 @@ jobs:
           go-version-file: golang/go.mod
           cache: true
           cache-dependency-path: golang/go.sum
+      - name: module proxy
+        run: scripts/module-proxy.sh >> "${GITHUB_ENV}"
       - name: go checks
         working-directory: golang
         run: |
@@ -118,8 +121,14 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
+      - name: module proxy
+        run: scripts/module-proxy.sh >> "${GITHUB_ENV}"
       - name: Run MegaLinter
         uses: megalomania428/github-actions/megalinter@master
+        env:
+          GOTOOLCHAIN: auto
+          MEGALIPASE: GOPROXY GONOSUMDB GOTOOLCHAIN
+          PODMAN_ARGS: -v ${{ runner.temp }}:${{ runner.temp }}:ro
   all-green:
     name: all green
     timeout-minutes: 5

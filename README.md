@@ -4,7 +4,10 @@ Backup utility written in Go.
 
 ## Build
 
+Building and testing need the module `duplicacy.invalid/v3` from a file-based Go module proxy in a release archive, so `GOPROXY` and `GONOSUMDB` must be set for it; `duplicacy.invalid` must not be in `GOPRIVATE` or `GONOPROXY`, as Go would then fetch it directly and fail. The script `scripts/module-proxy.sh` downloads and unpacks the archive into `${RUNNER_TEMP:-/tmp}/mega-doub-modules` once, a later run reuses it, and prints both variables as `NAME=value` lines; the integrity of the module is checked by `golang/go.sum`; a proxy that lost the archive of the module is downloaded again. The script needs `curl`, `tar` with `xz` support and GNU `mktemp`, `mv` and `flock`, and refuses a `RUNNER_TEMP` that is not an absolute path of ASCII letters, digits, `/`, `.`, `_` and `-`; `RUNNER_TEMP` also moves the directory elsewhere, such as on a host where another user owns `/tmp/mega-doub-modules`.
+
 ```bash
+proxy="$(scripts/module-proxy.sh)" && export ${proxy}
 cd golang
 version="$(git describe --tags --always --dirty)"
 commit="$(git rev-parse --short HEAD)"
@@ -103,4 +106,4 @@ The output masks the secrets: a non-empty `plain:` reference and a value without
 - `3` – the command is not implemented yet;
 - `4` – interrupted by a signal before or during the command.
 
-<!-- cspell:ignore doub evn ldflags testdata -->
+<!-- cspell:ignore doub duplicacy evn flock gonoproxy gonosumdb goprivate goproxy ldflags mktemp testdata -->
