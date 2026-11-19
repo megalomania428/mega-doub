@@ -1,7 +1,7 @@
 ---
 # Values out of the rules of the global section, one problem per key.
 storage:
-  url: 'b2://values-bucket/mega-doub'
+  url: '/srv/values'
   snapshot_id: values-main
   password: 'env:MEGA_DOUB_VALUES_STORAGE_PASSWORD'
 global:

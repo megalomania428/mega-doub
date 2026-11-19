@@ -189,13 +189,27 @@ func TestShow(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
+		// content is written to a temporary file when path is empty.
+		content string
 	}{
 		{name: "example", path: "../../testdata/example.yaml"},
 		{name: "full", path: "../../testdata/full.yaml"},
+		{name: "storage url that url.Parse rejects",
+			content: "---\nstorage:\n  url: /srv/backup-100%\n  snapshot_id: main\n" +
+				"  password: env:PASSWORD\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.path == "" {
+				tt.path = filepath.Join(t.TempDir(), "in.yaml")
+				if err := os.WriteFile(tt.path, []byte(tt.content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			_, want := show(t, tt.path)
+			if tt.content != "" && !bytes.Contains(want, []byte("url: /srv/backup-100%\n")) {
+				t.Errorf("Show() = %s, want the storage url as written", want)
+			}
 			// The output is a fixed point: it loads, passes the validation and is shown
 			// the same way again.
 			file := filepath.Join(t.TempDir(), "show.yaml")

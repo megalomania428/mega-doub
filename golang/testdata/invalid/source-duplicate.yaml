@@ -1,7 +1,7 @@
 ---
 # Identifiers of the sources and the problems that the source type reports.
 storage:
-  url: 'b2://sources-bucket/mega-doub'
+  url: '/srv/sources'
   snapshot_id: sources-main
   password: 'env:MEGA_DOUB_SOURCES_STORAGE_PASSWORD'
 targets:

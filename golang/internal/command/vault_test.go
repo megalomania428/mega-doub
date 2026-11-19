@@ -133,7 +133,7 @@ func Test_handle_vaultCanary(t *testing.T) {
 	canaryConfig := func(password string) string {
 		return "---\nglobal:\n  log_level: debug\nvault:\n  address: '" + srv.URL + "'\n" +
 			"  token: 'env:MEGA_DOUB_TEST_VAULT_TOKEN'\nstorage:\n" +
-			"  url: 'b2://canary-bucket/prefix'\n  snapshot_id: canary-main\n" +
+			"  url: '/srv/canary'\n  snapshot_id: canary-main\n" +
 			"  password: '" + password + "'\ntargets:\n  - name: local\n" +
 			"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n"
 	}

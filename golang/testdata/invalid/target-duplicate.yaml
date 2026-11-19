@@ -1,7 +1,7 @@
 ---
 # Names of the targets: the format, repeats and empty names.
 storage:
-  url: 'b2://names-bucket/mega-doub'
+  url: '/srv/names'
   snapshot_id: names-main
   password: 'env:MEGA_DOUB_NAMES_STORAGE_PASSWORD'
 targets:

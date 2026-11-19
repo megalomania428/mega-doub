@@ -1,7 +1,7 @@
 ---
 # A vault: reference outside vault.token makes vault.address and vault.token required.
 storage:
-  url: 'b2://missing-bucket/mega-doub'
+  url: '/srv/missing'
   snapshot_id: missing-main # checkov:skip=CKV_SECRET_6: next line is a vault reference
   password: 'vault:depot/mega-doub/missing/storage-password'
 vault:

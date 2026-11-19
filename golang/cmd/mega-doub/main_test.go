@@ -82,7 +82,7 @@ func Test_run(t *testing.T) {
 	for path, content := range map[string]string{
 		invalid: "---\ntargets:\n  - name: a\n    extra: 1\nglobal:\n  timeout: 30\n",
 		logSettings: "---\nglobal:\n  log_level: warn\n  log_format: json\nstorage:\n" +
-			"  url: b2://bucket/prefix\n  snapshot_id: main\n  password: env:PASSWORD\n",
+			"  url: /srv/storage\n  snapshot_id: main\n  password: env:PASSWORD\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
