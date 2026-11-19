@@ -1,0 +1,377 @@
+---
+# cspell:ignore armv cpes dgrijalva duplicacy etui klauspost logrus openpgp quic sirupsen
+# cspell:ignore solrsearch storj unindexed
+# cspell:ignore cyclonedx gmrh gopkg hrxh mhcw pchv ppxx rcvr vvgj wwqv xqrf xwgw
+# Copy of TEMPLATES/.grype.yaml from MegaLinter v9.6.0, it replaces the template
+# entirely; formatting is changed for the linters, the CVE-2018-20225 rule got
+# a reason, project rules are at the end.
+# enable/disable checking for application updates on startup
+# same as GRYPE_CHECK_FOR_APP_UPDATE env var
+# check-for-app-update: true
+
+# allows users to specify which image source should be used to generate the sbom
+# valid values are: registry, docker, podman
+# same as GRYPE_DEFAULT_IMAGE_PULL_SOURCE env var
+# default-image-pull-source: ""
+
+# same as --name; set the name of the target being analyzed
+# name: ""
+
+# upon scanning, if a severity is found at or above the given severity then the
+# return code will be 1
+# default is unset which will skip this validation (options: negligible, low,
+# medium, high, critical)
+# same as --fail-on ; GRYPE_FAIL_ON_SEVERITY env var
+fail-on-severity: "high"
+
+# the output format of the vulnerability report (options: table, json, cyclonedx)
+# same as -o ; GRYPE_OUTPUT env var
+# output: "table"
+
+# suppress all output (except for the vulnerability list)
+# same as -q ; GRYPE_QUIET env var
+# quiet: false
+
+# write output report to a file (default is to write to stdout)
+# same as --file; GRYPE_FILE env var
+# file: ""
+
+# a list of globs to exclude from scanning, for example:
+# exclude:
+#   - '/etc/**'
+#   - './out/**/*.json'
+# same as --exclude ; GRYPE_EXCLUDE env var
+# exclude: []
+
+# os and/or architecture to use when referencing container images
+# (e.g. "windows/armv6" or "arm64")
+# same as --platform; GRYPE_PLATFORM env var
+# platform: ""
+
+# If using SBOM input, automatically generate CPEs when packages have none
+# add-cpes-if-none: false
+
+# Explicitly specify a linux distribution to use as <distro>:<version> like alpine:3.10
+# distro:
+
+# external-sources:
+#   enable: false
+#   maven:
+#     search-upstream-by-sha1: true
+#     base-url: https://search.maven.org/solrsearch/select
+
+# db:
+#   # check for database updates on execution
+#   # same as GRYPE_DB_AUTO_UPDATE env var
+#   # auto-update: true
+#
+#   # location to write the vulnerability database cache
+#   # same as GRYPE_DB_CACHE_DIR env var
+#   # cache-dir: "$XDG_CACHE_HOME/grype/db"
+#
+#   # URL of the vulnerability database
+#   # same as GRYPE_DB_UPDATE_URL env var
+#   # update-url: "https://toolbox-data.anchore.io/grype/databases/listing.json"
+#
+#   # it ensures db build is no older than the max-allowed-built-age
+#   # set to false to disable check
+#   # validate-age: true
+#
+#   # Max allowed age for vulnerability database,
+#   # age being the time since it was built
+#   # Default max age is 120h (or five days)
+#   # max-allowed-built-age: "120h"
+
+# search:
+#   # the search space to look for packages (options: all-layers, squashed)
+#   # same as -s ; GRYPE_SEARCH_SCOPE env var
+#   # scope: "squashed"
+#
+#   # search within archives that do contain a file index to search against (zip)
+#   # note: for now this only applies to the java package cataloger
+#   # same as GRYPE_PACKAGE_SEARCH_INDEXED_ARCHIVES env var
+#   # indexed-archives: true
+#
+#   # search within archives that do not contain a file index to search against
+#   # (tar, tar.gz, tar.bz2, etc)
+#   # note: enabling this may result in a performance impact since all discovered
+#   # compressed tars will be decompressed
+#   # note: for now this only applies to the java package cataloger
+#   # same as GRYPE_PACKAGE_SEARCH_UNINDEXED_ARCHIVES env var
+#   # unindexed-archives: false
+
+# options when pulling directly from a registry via the "registry:" scheme
+# registry:
+#   # skip TLS verification when communicating with the registry
+#   # same as GRYPE_REGISTRY_INSECURE_SKIP_TLS_VERIFY env var
+#   # insecure-skip-tls-verify: false
+#   # use http instead of https when connecting to the registry
+#   # same as GRYPE_REGISTRY_INSECURE_USE_HTTP env var
+#   # insecure-use-http: false
+#
+#   # credentials for specific registries
+#   # auth:
+#     # - # the URL to the registry (e.g. "docker.io", "localhost:5000", etc.)
+#       # same as GRYPE_REGISTRY_AUTH_AUTHORITY env var
+#       # authority: ""
+#       # same as GRYPE_REGISTRY_AUTH_USERNAME env var
+#       # username: ""
+#       # same as GRYPE_REGISTRY_AUTH_PASSWORD env var
+#       # password: ""
+#       # note: token and username/password are mutually exclusive
+#       # same as GRYPE_REGISTRY_AUTH_TOKEN env var
+#       # token: ""
+#     # - ... # note, more credentials can be provided via config file only
+
+# log:
+#   # use structured logging
+#   # same as GRYPE_LOG_STRUCTURED env var
+#   # structured: false
+#
+#   # the log level; note: detailed logging suppress the ETUI
+#   # same as GRYPE_LOG_LEVEL env var
+#   # Uses logrus logging levels: https://github.com/sirupsen/logrus#level-logging
+#   # level: "error"
+#
+#   # location to write the log file (default is not to have a log file)
+#   # same as GRYPE_LOG_FILE env var
+#   # file: ""
+
+# match:
+#   # sets the matchers below to use cpes when trying to find
+#   # vulnerability matches. The stock matcher is the default
+#   # when no primary matcher can be identified
+#   # java:
+#   #   using-cpes: true
+#   # python:
+#   #   using-cpes: true
+#   # javascript:
+#   #   using-cpes: true
+#   # ruby:
+#   #   using-cpes: true
+#   # dotnet:
+#   #   using-cpes: true
+#   # golang:
+#   #   using-cpes: true
+#   # stock:
+#   #   using-cpes: true
+
+ignore:
+  # Ignored by default; disputed and unwarranted CVE that causes Megalinter to fail
+  # @link https://nvd.nist.gov/vuln/detail/CVE-2018-20225
+  - vulnerability: CVE-2018-20225
+    reason: >-
+      Ignored by default in the MegaLinter v9.6.0 template; disputed and
+      unwarranted CVE.
+  # jscpd:ignore-start
+  # Project rules: Go dependencies of duplicacy under golang/, pinned by package version.
+  - vulnerability: GHSA-6jvc-q2x7-pchv
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.34.0,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: github.com/aws/aws-sdk-go
+      version: v1.30.7
+      type: go-module
+  - vulnerability: GHSA-f5pg-7wfw-84q9
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.34.0,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: github.com/aws/aws-sdk-go
+      version: v1.30.7
+      type: go-module
+  - vulnerability: GHSA-7f33-f4f5-xwgw
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.34.0,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: github.com/aws/aws-sdk-go
+      version: v1.30.7
+      type: go-module
+  - vulnerability: GHSA-w73w-5m7g-f7qc
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; no fixed version yet.
+    package:
+      name: github.com/dgrijalva/jwt-go
+      version: v3.2.0+incompatible
+      type: go-module
+  - vulnerability: GHSA-259r-337f-4rfw
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.18.7,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: github.com/klauspost/compress
+      version: v1.16.3
+      type: go-module
+  - vulnerability: GO-2026-6865
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.20.2,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: github.com/klauspost/compress
+      version: v1.16.3
+      type: go-module
+  - vulnerability: GHSA-c33x-xqrf-c478
+    reason: >-
+      Required by storj.io/common v0.0.0-20230920095429-0ce0a575e6f8, which golang/go.mod
+      lists and duplicacy v3.3.0-p003 also requires; fixed in v0.42.0, to update add a
+      direct requirement of the fixed version to golang/go.mod.
+    package:
+      name: github.com/quic-go/quic-go
+      version: v0.38.0
+      type: go-module
+  - vulnerability: GHSA-ppxx-5m9h-6vxf
+    reason: >-
+      Required by storj.io/common v0.0.0-20230920095429-0ce0a575e6f8, which golang/go.mod
+      lists and duplicacy v3.3.0-p003 also requires; fixed in v0.38.2, to update add a
+      direct requirement of the fixed version to golang/go.mod.
+    package:
+      name: github.com/quic-go/quic-go
+      version: v0.38.0
+      type: go-module
+  - vulnerability: GHSA-g754-hx8w-x2g6
+    reason: >-
+      Required by storj.io/common v0.0.0-20230920095429-0ce0a575e6f8, which golang/go.mod
+      lists and duplicacy v3.3.0-p003 also requires; fixed in v0.57.0, to update add a
+      direct requirement of the fixed version to golang/go.mod.
+    package:
+      name: github.com/quic-go/quic-go
+      version: v0.38.0
+      type: go-module
+  - vulnerability: GHSA-47m2-4cr7-mhcw
+    reason: >-
+      Required by storj.io/common v0.0.0-20230920095429-0ce0a575e6f8, which golang/go.mod
+      lists and duplicacy v3.3.0-p003 also requires; fixed in v0.49.1, to update add a
+      direct requirement of the fixed version to golang/go.mod.
+    package:
+      name: github.com/quic-go/quic-go
+      version: v0.38.0
+      type: go-module
+  - vulnerability: GHSA-px8v-pp82-rcvr
+    reason: >-
+      Required by storj.io/common v0.0.0-20230920095429-0ce0a575e6f8, which golang/go.mod
+      lists and duplicacy v3.3.0-p003 also requires; fixed in v0.48.2, to update add a
+      direct requirement of the fixed version to golang/go.mod.
+    package:
+      name: github.com/quic-go/quic-go
+      version: v0.38.0
+      type: go-module
+  - vulnerability: GHSA-vvgj-x9jq-8cj9
+    reason: >-
+      Required by storj.io/common v0.0.0-20230920095429-0ce0a575e6f8, which golang/go.mod
+      lists and duplicacy v3.3.0-p003 also requires; fixed in v0.59.1, to update add a
+      direct requirement of the fixed version to golang/go.mod.
+    package:
+      name: github.com/quic-go/quic-go
+      version: v0.38.0
+      type: go-module
+  - vulnerability: GO-2026-5932
+    reason: >-
+      golang.org/x/crypto/openpgp is deprecated by design; the advisory range ends at
+      pseudo-version v0.58.1-0.20261009181718-2f1f834330b2, and release v0.59.0
+      contains the fix. The package is not imported by this module or its dependencies.
+    package:
+      name: golang.org/x/crypto
+      version: v0.58.0
+      type: go-module
+  - vulnerability: GO-2026-6860
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v0.62.0,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: golang.org/x/net
+      version: v0.61.0
+      type: go-module
+  - vulnerability: GO-2026-6866
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v0.62.0,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: golang.org/x/net
+      version: v0.61.0
+      type: go-module
+  - vulnerability: GHSA-p77j-4mvh-x3m3
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.79.3,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: google.golang.org/grpc
+      version: v1.28.1
+      type: go-module
+  - vulnerability: GHSA-2v4p-qf9q-27wj
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.82.2,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: google.golang.org/grpc
+      version: v1.28.1
+      type: go-module
+  - vulnerability: GHSA-vp52-pcj8-j9qc
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.83.1,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: google.golang.org/grpc
+      version: v1.28.1
+      type: go-module
+  - vulnerability: GHSA-qc2q-p7wx-3px3
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.83.1,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: google.golang.org/grpc
+      version: v1.28.1
+      type: go-module
+  - vulnerability: GHSA-hrxh-6v49-42gf
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.82.1,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: google.golang.org/grpc
+      version: v1.28.1
+      type: go-module
+  - vulnerability: GHSA-m425-mq94-257g
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.56.3,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: google.golang.org/grpc
+      version: v1.28.1
+      type: go-module
+  - vulnerability: GHSA-8r3f-844c-mc37
+    reason: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.33.0,
+      the update belongs to the update-graves fork of duplicacy.
+    package:
+      name: google.golang.org/protobuf
+      version: v1.28.1
+      type: go-module
+  - vulnerability: GHSA-wxc4-f4m6-wwqv
+    reason: >-
+      Required by testify v1.4.0 and v1.5.1 of modules that golang/go.mod lists and
+      duplicacy v3.3.0-p003 also requires; fixed in v2.2.8, to update add a direct
+      requirement of the fixed version to golang/go.mod.
+    package:
+      name: gopkg.in/yaml.v2
+      version: v2.2.2
+      type: go-module
+  - vulnerability: GHSA-6q6q-88xp-6f2r
+    reason: >-
+      Required by testify v1.4.0 and v1.5.1 of modules that golang/go.mod lists and
+      duplicacy v3.3.0-p003 also requires; fixed in v2.2.4, to update add a direct
+      requirement of the fixed version to golang/go.mod.
+    package:
+      name: gopkg.in/yaml.v2
+      version: v2.2.2
+      type: go-module
+  - vulnerability: GHSA-r88r-gmrh-7j83
+    reason: >-
+      Required by testify v1.4.0 and v1.5.1 of modules that golang/go.mod lists and
+      duplicacy v3.3.0-p003 also requires; fixed in v2.2.3, to update add a direct
+      requirement of the fixed version to golang/go.mod.
+    package:
+      name: gopkg.in/yaml.v2
+      version: v2.2.2
+      type: go-module
+# jscpd:ignore-end
