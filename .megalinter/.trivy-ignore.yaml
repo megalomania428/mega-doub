@@ -1,0 +1,141 @@
+---
+# cspell:ignore bincompatible dgrijalva duplicacy hrxh klauspost openpgp
+# Replaces the default .trivy-ignore.yaml of the megalomania428 MegaLinter action;
+# the default entries are kept: GO-2026-5932 and AVD-DS-0001, AVD-DS-0002, AVD-DS-0026.
+# jscpd:ignore-start
+vulnerabilities:
+  - id: CVE-2020-8911
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/github.com/aws/aws-sdk-go@v1.30.7
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.34.0,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2022-2582
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/github.com/aws/aws-sdk-go@v1.30.7
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.34.0,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2020-8912
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/github.com/aws/aws-sdk-go@v1.30.7
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.34.0,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2020-26160
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/github.com/dgrijalva/jwt-go@v3.2.0%2Bincompatible
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; no fixed version yet.
+  - id: CVE-2026-63209
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/github.com/klauspost/compress@v1.16.3
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.18.7,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: GO-2026-5932
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/golang.org/x/crypto@v0.58.0
+    statement: >-
+      golang.org/x/crypto/openpgp is deprecated by design; the advisory range ends at
+      pseudo-version v0.58.1-0.20261009181718-2f1f834330b2, and release v0.59.0
+      contains the fix. The package is not imported by this module or its dependencies.
+  - id: CVE-2026-78661
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/golang.org/x/net@v0.61.0
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v0.62.0,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2026-97045
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/golang.org/x/net@v0.61.0
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v0.62.0,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2026-33186
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/google.golang.org/grpc@v1.28.1
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.79.3,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2026-84304
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/google.golang.org/grpc@v1.28.1
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.83.1,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2026-84445
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/google.golang.org/grpc@v1.28.1
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.82.2,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: GHSA-hrxh-6v49-42gf
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/google.golang.org/grpc@v1.28.1
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.82.1,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: GHSA-m425-mq94-257g
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/google.golang.org/grpc@v1.28.1
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.56.3,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2026-84303
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/google.golang.org/grpc@v1.28.1
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.83.1,
+      the update belongs to the update-graves fork of duplicacy.
+  - id: CVE-2024-24786
+    paths:
+      - golang/go.mod
+    purls:
+      - pkg:golang/google.golang.org/protobuf@v1.28.1
+    statement: >-
+      Transitive dependency of duplicacy v3.3.0-p003; fixed in v1.33.0,
+      the update belongs to the update-graves fork of duplicacy.
+misconfigurations:
+  - id: AVD-DS-0001
+    statement: >-
+      Dockerfile check kept from the default ignore file of the MegaLinter
+      action; the project has no Dockerfile.
+  - id: AVD-DS-0002
+    statement: >-
+      Dockerfile check kept from the default ignore file of the MegaLinter
+      action; the project has no Dockerfile.
+  - id: AVD-DS-0026
+    statement: >-
+      Dockerfile check kept from the default ignore file of the MegaLinter
+      action; the project has no Dockerfile.
+
+# jscpd:ignore-end
