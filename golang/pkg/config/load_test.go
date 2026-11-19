@@ -124,14 +124,14 @@ func fullConfig() *config.Config {
 		},
 		Storage: config.Storage{
 			Name:       "offsite",
-			URL:        "sftp://u:fake-url-password@h.example.invalid/full",
+			URL:        "sftp://u@h.example.invalid/full",
 			SnapshotID: "full-main",
 			Password:   "vault:depot/mega-doub/full/storage-password",
 			Threads:    16,
 			Tag:        "full mega-doub",
 			Keys: map[string]secret.Ref{
-				"b2_id":  "vault:depot/mega-doub/full/b2-id",
-				"b2_key": "plain:fake-b2-key",
+				"ssh_key_file": "vault:depot/mega-doub/full/ssh-key-file",
+				"ssh_password": "plain:fake-ssh-password",
 			},
 		},
 		Prune: config.Prune{Enabled: true, Keep: []string{"0:365", "7:30", "1:7"}, Threads: 2,

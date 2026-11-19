@@ -35,7 +35,7 @@ func writeRetryConfig(t *testing.T, content string) string {
 
 // retryStorage is a valid storage section; without targets the configuration has the
 // one warning "no targets configured".
-const retryStorage = "storage:\n  url: 'b2://bucket'\n  snapshot_id: main\n" +
+const retryStorage = "storage:\n  url: '/srv/storage'\n  snapshot_id: main\n" +
 	"  password: 'env:MEGA_DOUB_X'\n"
 
 func Test_handle_retryRecords(t *testing.T) {

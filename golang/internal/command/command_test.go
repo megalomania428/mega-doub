@@ -73,7 +73,7 @@ func matchRecords(t *testing.T, records, patterns []string) {
 // global, prune.enabled and check.enabled set to enabled and check.files set to true.
 func commandConfig(global string, enabled bool) string {
 	return fmt.Sprintf("---\nglobal:\n%s"+
-		"storage:\n  url: 'b2://command-bucket/prefix'\n  snapshot_id: command-main\n"+
+		"storage:\n  url: '/srv/command'\n  snapshot_id: command-main\n"+
 		"  password: 'env:MEGA_DOUB_COMMAND_PASSWORD'\n"+
 		"prune:\n  enabled: %[2]t\n  keep: ['1:7']\n"+
 		"check:\n  enabled: %[2]t\n  files: true\n  chunks: false\n"+
@@ -111,7 +111,7 @@ func Test_handle(t *testing.T) {
 	}
 	logSettings := filepath.Join(t.TempDir(), "logging.yaml")
 	if err := os.WriteFile(logSettings, []byte("---\nglobal:\n  log_format: json\n"+
-		"storage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n"+
+		"storage:\n  url: /srv/storage\n  snapshot_id: main\n"+
 		"  password: env:PASSWORD\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func Test_handle_canary(t *testing.T) {
 	vaultConfig := "---\nvault:\n" + // kingfisher:ignore - next line is fake
 		"  address: 'https://u:fake-canary-vault@vault.example.invalid'\n" +
 		"  token: 'env:MEGA_DOUB_CANARY_TOKEN'\n" +
-		"storage:\n  url: 'b2://canary-bucket/prefix'\n" + valid
+		"storage:\n  url: '/srv/canary'\n" + valid
 	writeFiles(t, map[string]string{
 		escaped:  "---\nstorage:\n  url: 'sftp://u:p%40ss@h.example.invalid/x'\n" + valid,
 		vault:    vaultConfig,
@@ -439,9 +439,8 @@ func Test_handle_canary(t *testing.T) {
 		canaries []string
 	}{
 		{name: "full", path: full,
-			canaries: []string{"fake-b2-key", "fake-password", "fake-url-password",
-				"fake-source-token"}},
-		{name: "escaped password in the storage URL", path: escaped,
+			canaries: []string{"fake-ssh-password", "fake-password", "fake-source-token"}},
+		{name: "escaped password in the storage URL", path: escaped, invalid: true,
 			canaries: []string{"p%40ss", "p@ss"}},
 		{name: "password in the vault address", path: vault, invalid: true,
 			canaries: []string{"fake-canary-vault"}},
@@ -481,7 +480,7 @@ func Test_handle_outputTooLarge(t *testing.T) {
 	// The file is below the limit of 1048576 bytes, the defaults filled in make the
 	// output larger.
 	var b strings.Builder
-	b.WriteString("---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n" +
+	b.WriteString("---\nstorage:\n  url: /srv/storage\n  snapshot_id: main\n" +
 		"  password: env:PASSWORD\ntargets:\n")
 	for i := range 5000 {
 		fmt.Fprintf(&b, "  - {name: host%d, transport: ssh, host: h%d.example.invalid, "+

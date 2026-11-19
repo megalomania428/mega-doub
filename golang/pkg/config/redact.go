@@ -33,8 +33,9 @@ func Show(c *Config) ([]byte, error) {
 // Redact returns a deep copy of the configuration that is safe to print, c is not
 // changed. The copy has no templates, a local target has none of the ssh fields that
 // got their defaults on loading, a non-empty plain: reference and a value without a
-// prefix become plain:***, and storage.url and vault.address pass SanitizeURL. The
-// env:, file: and vault: references are kept: they are not values.
+// prefix become plain:***, vault.address passes SanitizeURL and storage.url loses only
+// its password, a string that the storage rules accept is kept as written. The env:,
+// file: and vault: references are kept: they are not values.
 func Redact(c *Config) *Config {
 	if c == nil {
 		return nil
@@ -51,9 +52,23 @@ func Redact(c *Config) *Config {
 	WalkRefs(safe, func(_ string, ref *secret.Ref) {
 		*ref = secret.Ref(ref.String())
 	})
-	safe.Storage.URL = SanitizeURL(safe.Storage.URL)
+	safe.Storage.URL = sanitizeStorageURL(safe.Storage.URL)
 	safe.Vault.Address = SanitizeURL(safe.Vault.Address)
 	return safe
+}
+
+// sanitizeStorageURL returns the storage URL raw with only the password of its user
+// information replaced by ***, and as written when storageURL accepts it: the rule takes
+// strings that url.Parse rejects, such as a path with a % or a port that is no number.
+// Any other string goes through SanitizeURL.
+func sanitizeStorageURL(raw string) string {
+	if start, end, ok := passwordSpan(raw); ok {
+		return raw[:start] + masked + raw[end:]
+	}
+	if _, msg := storageURL(raw); msg == "" {
+		return raw
+	}
+	return SanitizeURL(raw)
 }
 
 // SanitizeURL returns raw with the password of its user information replaced by ***,
@@ -69,27 +84,39 @@ func SanitizeURL(raw string) string {
 	if err != nil {
 		return masked
 	}
-	i := strings.Index(raw, ":")
 	if u.Opaque != "" {
-		return raw[:i+1] + masked
+		return raw[:strings.Index(raw, ":")+1] + masked
 	}
+	start, end, ok := passwordSpan(raw)
+	if !ok {
+		return raw
+	}
+	return raw[:start] + masked + raw[end:]
+}
+
+// passwordSpan returns the start and the end of the password of the user information
+// of raw, an empty password included, and true when there is one. The authority starts
+// only at a :// right after the scheme and ends before the first /, ? or #, the user
+// information ends at its last @ and the password follows its first :.
+func passwordSpan(raw string) (start, end int, ok bool) {
+	i := strings.Index(raw, ":")
 	if i < 0 || !strings.HasPrefix(raw[i:], "://") {
-		return raw
+		return 0, 0, false
 	}
-	start := i + len("://")
-	end := len(raw)
-	if j := strings.IndexAny(raw[start:], "/?#"); j >= 0 {
-		end = start + j
+	from := i + len("://")
+	to := len(raw)
+	if j := strings.IndexAny(raw[from:], "/?#"); j >= 0 {
+		to = from + j
 	}
-	at := strings.LastIndex(raw[start:end], "@")
+	at := strings.LastIndex(raw[from:to], "@")
 	if at < 0 {
-		return raw
+		return 0, 0, false
 	}
-	colon := strings.Index(raw[start:start+at], ":")
+	colon := strings.Index(raw[from:from+at], ":")
 	if colon < 0 {
-		return raw
+		return 0, 0, false
 	}
-	return raw[:start+colon+1] + masked + raw[start+at:]
+	return from + colon + 1, from + at, true
 }
 
 // deepCopy returns a copy of v that shares no pointer, slice or map with it. A value of

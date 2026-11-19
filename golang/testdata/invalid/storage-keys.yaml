@@ -1,0 +1,13 @@
+---
+# Keys out of the rules of the storage section: b2_key is missing, ssh_password is a
+# key of sftp and password is storage.password; the exclusive prune is a warning.
+storage:
+  url: 'b2://keys-bucket/mega-doub'
+  snapshot_id: keys-main
+  password: 'env:MEGA_DOUB_KEYS_STORAGE_PASSWORD'
+  keys:
+    b2_id: 'env:MEGA_DOUB_KEYS_B2_ID'
+    ssh_password: 'env:MEGA_DOUB_KEYS_SSH_PASSWORD'
+    password: 'env:MEGA_DOUB_KEYS_PASSWORD'
+prune:
+  exclusive: true

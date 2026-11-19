@@ -1,7 +1,7 @@
 ---
 # vault.token can not be a vault: reference.
 storage:
-  url: 'b2://token-bucket/mega-doub'
+  url: '/srv/token'
   snapshot_id: token-main
   password: 'env:MEGA_DOUB_TOKEN_STORAGE_PASSWORD'
 vault:

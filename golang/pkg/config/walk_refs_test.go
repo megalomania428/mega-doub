@@ -39,8 +39,8 @@ func TestWalkRefs(t *testing.T) {
 			want: []refVisit{
 				{"vault.token", "file:/run/secrets/fake-vault-token"},
 				{"storage.password", "vault:depot/mega-doub/full/storage-password"},
-				{"storage.keys.b2_id", "vault:depot/mega-doub/full/b2-id"},
-				{"storage.keys.b2_key", "plain:fake-b2-key"},
+				{"storage.keys.ssh_key_file", "vault:depot/mega-doub/full/ssh-key-file"},
+				{"storage.keys.ssh_password", "plain:fake-ssh-password"},
 				{"targets[0].key", "file:/root/.ssh/fake_ed25519"},
 				{"targets[0].key_passphrase", "env:MEGA_DOUB_FULL_PASSPHRASE"},
 				{"targets[0].password", "fake-password"},
@@ -67,7 +67,7 @@ func TestWalkRefs(t *testing.T) {
 	source, _ := full.Targets[0].Sources[0].(testsource.Source)
 	stored := map[string]secret.Ref{
 		"vault.token":                 full.Vault.Token,
-		"storage.keys.b2_key":         full.Storage.Keys["b2_key"],
+		"storage.keys.ssh_password":   full.Storage.Keys["ssh_password"],
 		"targets[0].sources[0].token": source.Token,
 	}
 	for path, got := range stored {

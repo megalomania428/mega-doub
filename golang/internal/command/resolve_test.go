@@ -80,12 +80,12 @@ func Test_handle_resolveCanary(t *testing.T) {
 	empty := filepath.Join(dir, "empty")
 	resolved := filepath.Join(dir, "resolved.yaml")
 	failed := filepath.Join(dir, "failed.yaml")
-	// canaryConfig returns a configuration with the password in the storage URL, the
-	// value of the password from the environment and the value of a key from the file.
+	// canaryConfig returns a configuration with the value of the password from the
+	// environment and the value of a key from the file.
 	canaryConfig := func(file string) string {
-		return "---\nstorage:\n  url: 'sftp://u:p%40ss@h.example.invalid/x'\n" +
+		return "---\nstorage:\n  url: 'sftp://u@h.example.invalid/x'\n" +
 			"  snapshot_id: canary-main\n  password: 'env:MEGA_DOUB_CANARY_ENV'\n" +
-			"  keys:\n    b2_key: 'file:" + file + "'\ntargets:\n  - name: local\n" +
+			"  keys:\n    ssh_password: 'file:" + file + "'\ntargets:\n  - name: local\n" +
 			"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n"
 	}
 	writeFiles(t, map[string]string{
@@ -107,10 +107,10 @@ func Test_handle_resolveCanary(t *testing.T) {
 			name:       "empty file",
 			path:       failed,
 			want:       2,
-			wantStderr: []string{"secret resolution failed", "storage.keys.b2_key", empty},
+			wantStderr: []string{"secret resolution failed", "storage.keys.ssh_password", empty},
 		},
 	}
-	canaries := []string{envCanary, fileCanary, "p%40ss", "p@ss"}
+	canaries := []string{envCanary, fileCanary}
 	commands := [][]string{{"config", "validate", "--resolve"}, {"backup", "--dry-run"}}
 	for _, tt := range tests {
 		for _, format := range []string{"text", "json"} {
@@ -190,7 +190,7 @@ func Test_handle_resolveVault(t *testing.T) {
 	vaultConfig := func(password string) string {
 		return "---\nvault:\n  address: 'https://vault.example.invalid'\n" +
 			"  token: 'env:MEGA_DOUB_RESOLVE_TOKEN'\nstorage:\n" +
-			"  url: 'b2://resolve-bucket/prefix'\n  snapshot_id: resolve-main\n" +
+			"  url: '/srv/resolve'\n  snapshot_id: resolve-main\n" +
 			"  password: '" + password + "'\ntargets:\n  - name: local\n" +
 			"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n"
 	}

@@ -26,16 +26,16 @@ vault:
   timeout: 45s
   ca_file: /usr/local/share/ca-certificates/fake-vault.crt
 storage:
-  name: offsite # checkov:skip=CKV_SECRET_4: next line has a fake credential
-  url: 'sftp://u:fake-url-password@h.example.invalid/full'
+  name: offsite
+  url: 'sftp://u@h.example.invalid/full'
   snapshot_id: full-main
   # checkov:skip=CKV_SECRET_6: the secret reference is fake
   password: 'vault:depot/mega-doub/full/storage-password'
   threads: 16
   tag: 'full mega-doub'
-  keys:
-    b2_id: 'vault:depot/mega-doub/full/b2-id'
-    b2_key: 'plain:fake-b2-key'
+  keys: # checkov:skip=CKV_SECRET_6: next line has a fake secret
+    ssh_password: 'plain:fake-ssh-password'
+    ssh_key_file: 'vault:depot/mega-doub/full/ssh-key-file'
 prune:
   enabled: true
   keep: ['0:365', '7:30', '1:7']
