@@ -463,22 +463,34 @@ func hasEnvPrefix(name string) bool {
 }
 
 // initialize runs the attempts to open the storage with the retries of the session.
-// Every failed attempt with a transient error is a warning record, the last one
-// included; a canceled ctx wins over the error of the attempts, but not over a
-// successful one.
 func (s *Session) initialize(ctx context.Context) error {
-	opts := s.retry.CI(s.operation)
+	return s.retryAttempts(ctx, attemptRun{operation: s.operation, run: s.attempt})
+}
+
+// attemptRun is the attempt run of an operation: the name of the operation of the records
+// of its failed attempts and the function that makes an attempt.
+type attemptRun struct {
+	operation string
+	run       func() error
+}
+
+// retryAttempts runs the attempts of a with the retries of the session. Every failed
+// attempt with a transient error is a warning record, the last one included; a permanent
+// error is returned at once, and a canceled ctx wins over the error of the attempts, but
+// not over a successful one.
+func (s *Session) retryAttempts(ctx context.Context, a attemptRun) error {
+	opts := s.retry.CI(a.operation)
 	opts.Stderr = io.Discard
 	var attempt int
 	var final error
 	err := ci.Retry(ctx, opts, func(ctx context.Context) error {
 		attempt++
-		err := s.attempt()
+		err := a.run()
 		if err == nil || ctx.Err() != nil || !transient(err) {
 			final = err
 			return nil
 		}
-		s.logger.Warn(msgRequestFailed, "operation", s.operation, "attempt", attempt,
+		s.logger.Warn(msgRequestFailed, "operation", a.operation, "attempt", attempt,
 			"error", s.errorText(err))
 		return err
 	})

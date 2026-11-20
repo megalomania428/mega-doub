@@ -52,18 +52,22 @@ func statusOf[E error](code func(E) int) func(error) (int, bool) {
 }
 
 // transient reports whether err, a failure of a call to the storage, is temporary, so
-// that the attempt is worth a retry. The type of the cause decides, found through
-// Unwrap and, for aws-sdk-go, which has no Unwrap, through OrigErr: a timeout of
-// net.Error, a temporary or timed out DNS lookup, a refused or reset connection, a
-// connection broken in the middle of a response (io.ErrUnexpectedEOF), and the HTTP
-// statuses 429 and 5xx of the error types of statusCodes, Hubic and ACD included.
-// Everything else is permanent, the text of an error is never matched: the failures
-// that reach the caller as text only, such as those of WebDAV, the B2 statuses, File
-// Fabric and the SMB transport, fail at once, and so do the statuses of OneDrive, whose
-// type is not in statusCodes. A failure that Storj, S3 or Azure report as a missing file
-// is not an error: Open takes it for a missing config, which is errNotInitialized
-// without WithInit and the start of the initialization with it.
+// that the attempt is worth a retry. The type of the cause decides, found through Unwrap
+// and, for aws-sdk-go, which has no Unwrap, through OrigErr: a timeout of net.Error, a
+// temporary or timed out DNS lookup, a refused or reset connection, a connection broken
+// in the middle of a response (io.ErrUnexpectedEOF), and the HTTP statuses 429 and 5xx of
+// the error types of statusCodes, Hubic and ACD included; the errStaleListing of the read
+// of a new revision is temporary too. Everything else is permanent, the text of an error
+// is never matched: the failures that reach the caller as text only, such as those of
+// WebDAV, the B2 statuses, File Fabric and the SMB transport, fail at once, and so do the
+// statuses of OneDrive, whose type is not in statusCodes. A failure that Storj, S3 or
+// Azure report as a missing file is not an error: Open takes it for a missing config,
+// which is errNotInitialized without WithInit and the start of the initialization with
+// it.
 func transient(err error) bool {
+	if errors.Is(err, errStaleListing) {
+		return true
+	}
 	for range maxOrigErr + 1 {
 		if err == nil {
 			return false

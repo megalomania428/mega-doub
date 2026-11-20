@@ -12,6 +12,7 @@ require (
 	github.com/ncw/swift/v2 v2.0.1
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v4 v4.0.0-rc.8
+	golang.org/x/net v0.61.0
 	google.golang.org/api v0.21.0
 )
 
@@ -74,7 +75,6 @@ require (
 	go.opencensus.io v0.22.3 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
