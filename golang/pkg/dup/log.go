@@ -1,7 +1,7 @@
 // cspell:ignore abcd abcde duplicacy
 
-// Package dup runs duplicacy inside the process of mega-doub. For now it holds the bridge
-// from the log of duplicacy to log/slog.
+// Package dup runs duplicacy inside the process of mega-doub: the bridge from the log of
+// duplicacy to log/slog and the session that opens the storage of duplicacy.
 package dup
 
 import (

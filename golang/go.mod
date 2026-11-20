@@ -4,9 +4,15 @@ go 1.26.11
 
 require (
 	duplicacy.invalid/v3 v3.3.0-p003
+	github.com/aws/aws-sdk-go v1.30.7
+	github.com/gilbertchen/azure-sdk-for-go v14.1.2-0.20180323033227-8fd4663cab7c+incompatible
+	github.com/gilbertchen/go-dropbox v0.0.0-20230321030224-087ef8db1916
+	github.com/gilbertchen/goamz v0.0.0-20170712012135-eada9f4e8cc2
 	github.com/megalomania428/go-lib-ci v1.0.5
+	github.com/ncw/swift/v2 v2.0.1
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v4 v4.0.0-rc.8
+	google.golang.org/api v0.21.0
 )
 
 require (
@@ -15,7 +21,6 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/aryann/difflib v0.0.0-20170710044230-e206f873d14a // indirect
-	github.com/aws/aws-sdk-go v1.30.7 // indirect
 	github.com/bkaradzic/go-lz4 v1.0.0 // indirect
 	github.com/calebcase/tmpfile v1.0.3 // indirect
 	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701 // indirect
@@ -23,10 +28,7 @@ require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/flynn/noise v1.0.0 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
-	github.com/gilbertchen/azure-sdk-for-go v14.1.2-0.20180323033227-8fd4663cab7c+incompatible // indirect
-	github.com/gilbertchen/go-dropbox v0.0.0-20230321030224-087ef8db1916 // indirect
 	github.com/gilbertchen/go-ole v1.2.0 // indirect
-	github.com/gilbertchen/goamz v0.0.0-20170712012135-eada9f4e8cc2 // indirect
 	github.com/gilbertchen/gopass v0.0.0-20170109162249-bf9dde6d0d2c // indirect
 	github.com/gilbertchen/highwayhash v0.0.0-20221109044721-eeab1f4799d8 // indirect
 	github.com/go-telegram/bot v1.27.0 // indirect
@@ -56,7 +58,6 @@ require (
 	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1 // indirect
 	github.com/minio/highwayhash v1.0.2 // indirect
 	github.com/mmcloughlin/avo v0.0.0-20200803215136-443f81d77104 // indirect
-	github.com/ncw/swift/v2 v2.0.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/sftp v1.11.0 // indirect
 	github.com/pkg/xattr v0.4.1 // indirect
@@ -80,7 +81,6 @@ require (
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect
-	google.golang.org/api v0.21.0 // indirect
 	google.golang.org/appengine v1.6.5 // indirect
 	google.golang.org/genproto v0.0.0-20200409111301-baae70f3302d // indirect
 	google.golang.org/grpc v1.28.1 // indirect
