@@ -63,8 +63,11 @@ type PruneResult struct {
 // policies; the revisions of other snapshot IDs are kept. A prune whose snapshot cache
 // tree shares a directory with the tree of the local file storage, through any link or
 // mount, is an error before duplicacy is called, because the clean-up of the cache and
-// the fossils of the prune would change the archive. Backup, Prune and Close of a session
-// must not run at the same time.
+// the fossils of the prune would change the archive. A done ctx stops the prune at the
+// next check of duplicacy with an *Error that wraps ctx.Err(), unless a worker of
+// duplicacy has failed before, whose *Error comes back instead; a request during its
+// final step, which changes the storage, does not stop it, and the result comes back.
+// Backup, Prune and Close of a session must not run at the same time.
 func (s *Session) Prune(ctx context.Context, opts ...PruneOption) (*PruneResult, error) {
 	o := pruneOptions{threads: s.threads}
 	for _, opt := range opts {

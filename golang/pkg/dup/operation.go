@@ -44,6 +44,9 @@ func newCollector() *collector {
 	return &collector{steps: map[duplicacy.ProgressAction]int64{}}
 }
 
+// eventHook gets every event of an operation before next; tests replace it.
+var eventHook func(duplicacy.ProgressEvent)
+
 // record is the ProgressFunction of the operation: it keeps the event of the end and
 // counts the steps of the actions of prune that changed a chunk.
 func (c *collector) record(event duplicacy.ProgressEvent) {
@@ -55,6 +58,9 @@ func (c *collector) record(event duplicacy.ProgressEvent) {
 		c.steps[event.Action]++
 	}
 	c.mu.Unlock()
+	if eventHook != nil {
+		eventHook(event)
+	}
 	if c.next != nil {
 		c.next(event)
 	}
@@ -342,13 +348,19 @@ func (s *Session) operationError(op string, err error) error {
 
 // operate runs w.f, the operation w.op of duplicacy, with a new backup manager of the
 // session and its snapshot cache, and with w.c as ProgressFunction and as the observer of
-// the log. A canceled ctx and a closed session fail before duplicacy is called, and so
-// does a snapshot cache tree that shares a directory with the tree of the local file
-// storage (see checkCache), without any call of the storage and without a change of the
-// files of the storage and of the cache. RunAtError is cleared before the backup manager
-// is created, so that it holds no function of an earlier call. The Exception that
-// duplicacy panics with becomes an *Error of the operation; an *Error returned by w.f is
-// returned as is, and any other error of w.f is wrapped with the operation.
+// the log. A canceled ctx, at the start or when checkCache is done, and a closed session
+// fail before duplicacy is called, and so does a snapshot cache tree that shares a
+// directory with the tree of the local file storage (see checkCache), without any call of
+// the storage and without a change of the files of the storage and of the cache.
+// RunAtError is cleared before the backup manager is created, so that it holds no
+// function of an earlier call. While w.f runs, a done ctx requests the cancellation of
+// duplicacy, which stops the operation at its next check; a request after the last check
+// does not stop it. The Exception that duplicacy panics with becomes an *Error of the
+// operation. The one of the cancellation wraps ctx.Err(), so errors.Is tells
+// context.Canceled or context.DeadlineExceeded, and its record of the log is left out, as
+// the caller reports the cancellation; an error of a worker of duplicacy that comes
+// before the cancellation stays as it is. An *Error returned by w.f is returned as is,
+// and any other error of w.f is wrapped with the operation.
 func (s *Session) operate(ctx context.Context, w *work) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%s: %w", w.op, err)
@@ -359,12 +371,16 @@ func (s *Session) operate(ctx context.Context, w *work) error {
 	if err := s.checkCache(w.op); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%s: %w", w.op, err)
+	}
 	duplicacy.RunAtError = doNothing
 	duplicacy.ProgressFunction = w.c.record
 	logFunction := duplicacy.LogFunction
 	duplicacy.LogFunction = func(level int, logID, message string) {
 		w.c.observe(logID, message)
-		if logFunction != nil {
+		// The caller reports the cancellation from ctx, not from the record of duplicacy.
+		if logFunction != nil && logID != duplicacy.CancelLogID {
 			logFunction(level, logID, message)
 		}
 	}
@@ -372,6 +388,8 @@ func (s *Session) operate(ctx context.Context, w *work) error {
 		duplicacy.ProgressFunction = nil
 		duplicacy.LogFunction = logFunction
 	}()
+	stop := watchCancel(ctx)
+	defer stop()
 	var err error
 	callErr := s.call(w.op, func() {
 		manager := duplicacy.CreateBackupManager(s.preference.SnapshotID, s.storage,
@@ -380,6 +398,11 @@ func (s *Session) operate(ctx context.Context, w *work) error {
 		err = w.f(manager)
 	})
 	if callErr != nil {
+		e, ok := errors.AsType[*Error](callErr)
+		if ctxErr := ctx.Err(); ok && e.LogID == duplicacy.CancelLogID && ctxErr != nil {
+			// The cancellation that ctx requested tells its cause.
+			e.Err = ctxErr
+		}
 		return callErr
 	}
 	if _, ok := errors.AsType[*Error](err); ok {
@@ -389,4 +412,26 @@ func (s *Session) operate(ctx context.Context, w *work) error {
 		return s.operationError(w.op, err)
 	}
 	return nil
+}
+
+// watchCancel resets the cancellation of duplicacy and requests it from a new goroutine
+// once ctx is done. The returned function stops that goroutine, waits for it and resets
+// the cancellation again, so that neither an earlier nor a late request reaches another
+// operation.
+func watchCancel(ctx context.Context) func() {
+	duplicacy.ResetCancel()
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		select {
+		case <-ctx.Done():
+			duplicacy.RequestCancel()
+		case <-done:
+		}
+	})
+	return func() {
+		close(done)
+		wg.Wait()
+		duplicacy.ResetCancel()
+	}
 }

@@ -516,9 +516,9 @@ type attemptRun struct {
 }
 
 // retryAttempts runs the attempts of a with the retries of the session. Every failed
-// attempt with a transient error is a warning record, the last one included; a permanent
-// error is returned at once, and a canceled ctx wins over the error of the attempts, but
-// not over a successful one.
+// attempt with a transient error is a warning record, the last one and the one that ends
+// with a done ctx included; a permanent error is returned at once, and a canceled ctx
+// wins over the error of the attempts, but not over a successful one.
 func (s *Session) retryAttempts(ctx context.Context, a attemptRun) error {
 	opts := s.retry.CI(a.operation)
 	opts.Stderr = io.Discard
@@ -527,13 +527,15 @@ func (s *Session) retryAttempts(ctx context.Context, a attemptRun) error {
 	err := ci.Retry(ctx, opts, func(ctx context.Context) error {
 		attempt++
 		err := a.run()
-		if err == nil || ctx.Err() != nil || !transient(err) {
-			final = err
-			return nil
+		if err != nil && transient(err) {
+			s.logger.Warn(msgRequestFailed, "operation", a.operation, "attempt", attempt,
+				"error", s.errorText(err))
+			if ctx.Err() == nil {
+				return err
+			}
 		}
-		s.logger.Warn(msgRequestFailed, "operation", a.operation, "attempt", attempt,
-			"error", s.errorText(err))
-		return err
+		final = err
+		return nil
 	})
 	if err == nil && final == nil {
 		return nil

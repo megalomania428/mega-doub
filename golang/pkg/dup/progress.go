@@ -26,6 +26,9 @@ var progressElements = map[string]ci.ProgressElement{
 // progressOptions are added to the options of every progress bar; tests replace it.
 var progressOptions []ci.ProgressOption
 
+// newProgress creates every progress bar; tests replace it.
+var newProgress = ci.NewProgress
+
 // errBackupInterrupted finishes the progress bar of a backup that has not reached its
 // event of the end, as after an error or a panic of duplicacy.
 var errBackupInterrupted = errors.New("backup is interrupted")
@@ -53,15 +56,16 @@ func (s *Session) newBackupProgress(ctx context.Context) *backupProgress {
 			ci.WithProgressElements(elements...),
 			ci.WithProgressStderr(w),
 		}
-		return ci.NewProgress(ctx, append(opts, progressOptions...)...)
+		return newProgress(ctx, append(opts, progressOptions...)...)
 	}}
 }
 
 // event is the next of the collector of the backup: the start creates the bar with
 // TotalBytes, a step adds its Bytes and the end finishes the bar. duplicacy calls it
-// from its workers at the same time. A panic of the start, as go-lib-ci raises when
-// mpb adds a bar to an already cancelled context, goes on to the caller with the
-// mutex released, so the deferred finish of Backup does not wait for it forever.
+// from its workers at the same time. The bar has the context of the backup, and on a
+// canceled one go-lib-ci does not panic: the bar draws nothing or a few frames before it
+// notices the cancellation. A panic of start goes on to the caller with the mutex
+// released, so the deferred finish of Backup does not wait for it forever.
 func (p *backupProgress) event(event duplicacy.ProgressEvent) {
 	switch event.Kind {
 	case duplicacy.ProgressKindStart:

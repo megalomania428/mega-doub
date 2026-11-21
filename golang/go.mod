@@ -8,7 +8,7 @@ require (
 	github.com/gilbertchen/azure-sdk-for-go v14.1.2-0.20180323033227-8fd4663cab7c+incompatible
 	github.com/gilbertchen/go-dropbox v0.0.0-20230321030224-087ef8db1916
 	github.com/gilbertchen/goamz v0.0.0-20170712012135-eada9f4e8cc2
-	github.com/megalomania428/go-lib-ci v1.0.6
+	github.com/megalomania428/go-lib-ci v1.0.7
 	github.com/ncw/swift/v2 v2.0.1
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v4 v4.0.0-rc.8

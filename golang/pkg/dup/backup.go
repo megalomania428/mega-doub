@@ -99,14 +99,19 @@ type backupRead struct {
 // hold the revision, whatever its largest number is, is a failed attempt with a transient
 // error. A failed read with a transient error is retried as the attempts of Open are; a
 // permanent error is returned at once, and so is the lack of a reported revision,
-// errNoRevision; a canceled ctx gives its error.
+// errNoRevision. A done ctx stops the wait between the attempts and the next attempts
+// and gives its error, but the first attempt is made however early ctx is done, as the
+// backup has completed: a successful one gives the result, a failed one the error of ctx
+// and, with a transient error, its record.
 func (s *Session) readRevision(ctx context.Context, r *backupRead) error {
 	revision := r.c.endRevision()
 	if revision == 0 {
 		return errNoRevision
 	}
 	id := s.preference.SnapshotID
-	return s.retryAttempts(ctx, attemptRun{operation: opBackup, run: func() error {
+	attempted := false
+	read := attemptRun{operation: opBackup, run: func() error {
+		attempted = true
 		var readErr error
 		err := s.call(opBackup, func() {
 			revisions, err := r.manager.SnapshotManager.ListSnapshotRevisions(id)
@@ -127,7 +132,21 @@ func (s *Session) readRevision(ctx context.Context, r *backupRead) error {
 			err = readErr
 		}
 		return err
-	}})
+	}}
+	err := s.retryAttempts(ctx, read)
+	if attempted || err == nil {
+		return err
+	}
+	// ci.Retry makes no attempt with a done ctx, but the backup has completed, so its
+	// revision is read once.
+	if readErr := read.run(); readErr != nil {
+		if transient(readErr) {
+			s.logger.Warn(msgRequestFailed, "operation", opBackup, "attempt", 1,
+				"error", s.errorText(readErr))
+		}
+		return err
+	}
+	return nil
 }
 
 // Backup backs the copy directory up to the storage and creates a revision of the
@@ -145,8 +164,12 @@ func (s *Session) readRevision(ctx context.Context, r *backupRead) error {
 // duplicacy.RunAtError, as the duplicacy CLI does, and clears it. That function tries to
 // save the incomplete snapshot in the cache if the backup of the first revision, which
 // hashes all the files, has set it by then; the save is not guaranteed, and an Exception
-// before it is set, such as a failed listing, or a failed save keeps nothing. Backup,
-// Prune and Close of a session must not run at the same time.
+// before it is set, such as a failed listing, or a failed save keeps nothing. A done ctx
+// stops the backup at the next check of duplicacy with an *Error that wraps ctx.Err(),
+// unless a worker of duplicacy has failed before, whose *Error comes back instead, and
+// no revision is created; a request during the upload of the revision at the end does
+// not stop it: the revision is created and read once, and the result comes back unless
+// that read fails. Backup, Prune and Close of a session must not run at the same time.
 func (s *Session) Backup(
 	ctx context.Context, opts ...BackupOption,
 ) (*BackupResult, error) {

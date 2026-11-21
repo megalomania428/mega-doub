@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/megalomania428/mega-doub/internal/cli"
 	"github.com/megalomania428/mega-doub/pkg/config"
@@ -38,8 +39,10 @@ func New(deps Deps) cli.Handler {
 
 // handle loads and validates the configuration, configures the logger by it, resolves
 // the secrets and runs the command. config show does not resolve the secrets, config
-// validate does it only with --resolve. Interruption is reported by cli.Execute, the
-// handler keeps its code.
+// validate does it only with --resolve. global.timeout limits backup and prune after the
+// validation, the secrets and the command included; its expiry is the record timed out
+// and the exit code 4. Interruption is reported by cli.Execute, the handler keeps its
+// code.
 func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int {
 	loaded, err := config.Load(inv.Global.Config)
 	if err != nil {
@@ -72,19 +75,27 @@ func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int
 		return show(env, loaded.Config)
 	}
 	validate := inv.Command == "config validate"
-	if !validate || inv.ConfigValidate.Resolve {
-		// The resolver follows the logger of the file; the Vault client starts only at the
-		// first vault: reference.
-		r := deps.NewResolver(vaultOptions(loaded, env.Logger))
-		if code := resolve(ctx, r, loaded, env.Logger); code != model.ExitOK {
-			return code
+	work := func(workCtx context.Context) int {
+		if !validate || inv.ConfigValidate.Resolve {
+			// The resolver follows the logger of the file; the Vault client starts only at
+			// the first vault: reference.
+			r := deps.NewResolver(vaultOptions(loaded, env.Logger))
+			if code := resolve(workCtx, r, loaded, env.Logger); code != model.ExitOK {
+				return code
+			}
 		}
+		if validate {
+			env.Logger.Info("configuration is valid", "config", inv.Global.Config)
+			return model.ExitOK
+		}
+		return stub(inv, env, loaded.Config)
 	}
-	if validate {
-		env.Logger.Info("configuration is valid", "config", inv.Global.Config)
-		return model.ExitOK
+	if inv.Command == "backup" || inv.Command == "prune" {
+		limit := timeLimit{timeout: time.Duration(loaded.Config.Global.Timeout),
+			logger: env.Logger}
+		return limit.run(ctx, work)
 	}
-	return stub(inv, env, loaded.Config)
+	return work(ctx)
 }
 
 // failure is a secret reference that failed to resolve, line is zero without a position.
