@@ -109,6 +109,10 @@ type sessionOptions struct {
 	logger      *slog.Logger
 	retry       retry.Options
 	initStorage bool
+	// progress is set by WithProgress, with its writer and the names of its elements.
+	progress         bool
+	progressWriter   io.Writer
+	progressElements []string
 }
 
 // WithCopyDir sets the directory of the copy, the repository of duplicacy; it is
@@ -188,7 +192,27 @@ func WithInit() SessionOption {
 	return func(o *sessionOptions) { o.initStorage = true }
 }
 
-// validate checks the required values and the number of threads.
+// WithProgress makes Backup draw a progress bar of go-lib-ci to w with the elements,
+// the names of global.progress: bytes, elapsed, rate, bar, percent and eta. The bar
+// counts the bytes of the file chunks against the size of the changed files and is
+// finished before Backup returns; go-lib-ci draws it with mpb when w is a terminal and
+// with lines of text otherwise. No elements, as well as no option, draw nothing, and
+// Prune draws no bar. w is required with the option and an unknown element is an
+// error of Open; the option keeps its own copy of elements. The bar writes to w from
+// its own goroutine, so a w shared with the logger of the session or with other
+// writers must be safe for concurrent writes, as os.Stderr is, and a buffer of a test
+// must be synchronized.
+func WithProgress(w io.Writer, elements ...string) SessionOption {
+	elements = slices.Clone(elements)
+	return func(o *sessionOptions) {
+		o.progress = true
+		o.progressWriter = w
+		o.progressElements = elements
+	}
+}
+
+// validate checks the required values, the number of threads and the elements of the
+// progress bar.
 func (o *sessionOptions) validate() error {
 	switch {
 	case o.copyDir == "":
@@ -205,6 +229,13 @@ func (o *sessionOptions) validate() error {
 		return errors.New("storage password is required")
 	case o.threads < 1:
 		return errors.New("storage threads must be at least 1")
+	case o.progress && o.progressWriter == nil:
+		return errors.New("progress writer is required")
+	}
+	for _, name := range o.progressElements {
+		if _, ok := progressElements[name]; !ok {
+			return fmt.Errorf("unknown progress element %q", name)
+		}
 	}
 	return nil
 }
@@ -228,6 +259,10 @@ type Session struct {
 	checkRedirect func(*http.Request, []*http.Request) error
 	// initStorage is set by WithInit.
 	initStorage bool
+	// progressWriter and progress are the writer and the elements of the progress bar of
+	// Backup; no elements draw no bar.
+	progressWriter io.Writer
+	progress       []ci.ProgressElement
 	// subdirsPending is set before ConfigStorage starts the initialization and is
 	// cleared when the subdirectories are confirmed: ConfigStorage has created them or
 	// createSubdirectories has. A later attempt that reads the config creates them
@@ -376,17 +411,23 @@ func newSession(o *sessionOptions) *Session {
 		StorageURL: o.url,
 		Keys:       keys,
 	}
+	progress := make([]ci.ProgressElement, 0, len(o.progressElements))
+	for _, name := range o.progressElements {
+		progress = append(progress, progressElements[name])
+	}
 	return &Session{
-		copyDir:     o.copyDir,
-		stateDir:    o.stateDir,
-		operation:   operationInit + " " + o.storageName,
-		preference:  preference,
-		password:    o.password,
-		threads:     o.threads,
-		retry:       o.retry,
-		logger:      logger,
-		masks:       masks,
-		initStorage: o.initStorage,
+		copyDir:        o.copyDir,
+		stateDir:       o.stateDir,
+		operation:      operationInit + " " + o.storageName,
+		preference:     preference,
+		password:       o.password,
+		threads:        o.threads,
+		retry:          o.retry,
+		logger:         logger,
+		masks:          masks,
+		initStorage:    o.initStorage,
+		progressWriter: o.progressWriter,
+		progress:       progress,
 	}
 }
 

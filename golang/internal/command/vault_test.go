@@ -101,7 +101,8 @@ func Test_handle_vaultExample(t *testing.T) {
 		created++
 		return secret.New(opts)
 	}}
-	got, stdout, stderr := execute(t, deps, "config", "validate", "-c", example)
+	got, stdout, stderr := execute(t, deps, "config", "validate", "--no-progress", "-c",
+		example)
 	if got != 0 {
 		t.Errorf("cli.Execute() = %v, want 0: %s", got, stderr)
 	}
@@ -131,7 +132,8 @@ func Test_handle_vaultCanary(t *testing.T) {
 	// canaryConfig returns a configuration with the debug level, the test Vault server and
 	// the password from it.
 	canaryConfig := func(password string) string {
-		return "---\nglobal:\n  log_level: debug\nvault:\n  address: '" + srv.URL + "'\n" +
+		return "---\nglobal:\n  log_level: debug\n  progress: []\nvault:\n" +
+			"  address: '" + srv.URL + "'\n" +
 			"  token: 'env:MEGA_DOUB_TEST_VAULT_TOKEN'\nstorage:\n" +
 			"  url: '/srv/canary'\n  snapshot_id: canary-main\n" +
 			"  password: '" + password + "'\ntargets:\n  - name: local\n" +

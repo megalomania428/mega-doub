@@ -38,16 +38,16 @@ type Config struct {
 
 // Global holds the settings shared by all targets.
 type Global struct {
-	Instance        string    `yaml:"instance"`
-	CopyDir         string    `yaml:"copy_dir"`
-	StateDir        string    `yaml:"state_dir"`
-	ParallelTargets int       `yaml:"parallel_targets"`
-	ParallelSources int       `yaml:"parallel_sources"`
-	LogLevel        LogLevel  `yaml:"log_level"`
-	LogFormat       LogFormat `yaml:"log_format"`
-	Progress        string    `yaml:"progress"`
-	Timeout         Duration  `yaml:"timeout"`
-	Retry           Retry     `yaml:"retry"`
+	Instance        string           `yaml:"instance"`
+	CopyDir         string           `yaml:"copy_dir"`
+	StateDir        string           `yaml:"state_dir"`
+	ParallelTargets int              `yaml:"parallel_targets"`
+	ParallelSources int              `yaml:"parallel_sources"`
+	LogLevel        LogLevel         `yaml:"log_level"`
+	LogFormat       LogFormat        `yaml:"log_format"`
+	Progress        ProgressElements `yaml:"progress"`
+	Timeout         Duration         `yaml:"timeout"`
+	Retry           Retry            `yaml:"retry"`
 }
 
 // Retry holds the retry settings with the defaults of go-lib-ci. A zero
@@ -130,7 +130,7 @@ func defaultConfig() *Config {
 			ParallelSources: 2,
 			LogLevel:        "info",
 			LogFormat:       "text",
-			Progress:        "auto",
+			Progress:        defaultProgress(),
 			Timeout:         Duration(12 * time.Hour),
 			Retry: Retry{
 				MaxRetriesTime:      Duration(defaultMaxRetriesTime),
@@ -158,4 +158,9 @@ func defaultTargetSettings() TargetSettings {
 
 func defaultAuth() []string {
 	return []string{"agent"}
+}
+
+// defaultProgress returns all the elements of global.progress in their order.
+func defaultProgress() ProgressElements {
+	return append(ProgressElements{}, progressElements...)
 }

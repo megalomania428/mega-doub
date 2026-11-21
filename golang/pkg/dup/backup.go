@@ -165,6 +165,10 @@ func (s *Session) Backup(
 	}
 	start := time.Now()
 	c := newCollector()
+	if p := s.newBackupProgress(ctx); p != nil {
+		c.next = p.event
+		defer p.finish(errBackupInterrupted)
+	}
 	result := &BackupResult{}
 	err := s.operate(ctx, &work{op: opBackup, c: c,
 		f: func(manager *duplicacy.BackupManager) error {

@@ -97,7 +97,8 @@ func TestValidate(t *testing.T) {
 				{"global.instance", 8, 13, `"a/b" must match ^[A-Za-z0-9_-]+$`},
 				{"global.parallel_targets", 9, 21, "must be at least 1"},
 				{"global.parallel_sources", 10, 21, "must be at least 1"},
-				{"global.progress", 11, 13, `"foo" must be one of auto, always, never`},
+				{"global.progress[0]", 11, 14,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
 				{"global.timeout", 12, 12, "must be greater than zero"},
 			},
 		},
@@ -115,12 +116,12 @@ func TestValidate(t *testing.T) {
 			// An empty value is left out of the message.
 			name: "empty strings",
 			content: "---\nglobal:\n  instance: ''\n  copy_dir: ''\n  state_dir: ''\n" +
-				"  progress: ''\n",
+				"  progress: ['']\n",
 			want: []want{
 				{"global.instance", 3, 13, "must match"},
 				{"global.copy_dir", 4, 13, "must be an absolute path"},
 				{"global.state_dir", 5, 14, "must be an absolute path"},
-				{"global.progress", 6, 13, "must be one of"},
+				{"global.progress[0]", 6, 14, "must be one of"},
 			},
 		},
 		{
@@ -128,6 +129,50 @@ func TestValidate(t *testing.T) {
 			content: "---\nglobal:\n  instance: null\n  copy_dir: null\n" +
 				"  parallel_targets: null\n  progress: null\n  timeout: null\n" +
 				"  retry:\n    backoff_cap: null\n",
+		},
+		{
+			name:    "progress elements in any order",
+			content: "---\nglobal:\n  progress: [eta, percent, bar, rate, elapsed, bytes]\n",
+		},
+		{
+			name:    "empty progress",
+			content: "---\nglobal:\n  progress: []\n",
+		},
+		{
+			name:    "null progress element",
+			content: "---\nglobal:\n  progress: [null]\n",
+			want:    []want{{"global.progress[0]", 3, 14, "must be one of"}},
+		},
+		{
+			name:    "null progress element keeps its index",
+			content: "---\nglobal:\n  progress: [percent, null, foo]\n",
+			want: []want{
+				{"global.progress[1]", 3, 23, "must be one of"},
+				{"global.progress[2]", 3, 29,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
+			},
+		},
+		{
+			name:    "empty progress element of a block list",
+			content: "---\nglobal:\n  progress:\n    - percent\n    -\n    - foo\n",
+			want: []want{
+				{"global.progress[1]", 5, 6, "must be one of"},
+				{"global.progress[2]", 6, 7,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
+			},
+		},
+		{
+			// An unknown element that repeats gets both problems, as an auth method does.
+			name:    "progress elements",
+			content: "---\nglobal:\n  progress: [eta, foo, bar, eta, foo]\n",
+			want: []want{
+				{"global.progress[1]", 3, 19,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
+				{"global.progress[3]", 3, 29, `"eta" is not unique`},
+				{"global.progress[4]", 3, 34,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
+				{"global.progress[4]", 3, 34, `"foo" is not unique`},
+			},
 		},
 		{
 			// The computed directories of the instance are equal after cleaning; the

@@ -38,8 +38,8 @@ const (
 // password from the secret mega-doub/retry, the plain key b2_id and the key b2_key from
 // the secret mega-doub/forbidden.
 func retryVaultConfig(address, schedule string) string {
-	return "---\nglobal:\n  log_level: debug\n  retry:\n" + schedule + "vault:\n" +
-		"  address: '" + address + "'\n  token: 'env:MEGA_DOUB_TEST_VAULT_TOKEN'\n" +
+	return "---\nglobal:\n  log_level: debug\n  progress: []\n  retry:\n" + schedule +
+		"vault:\n  address: '" + address + "'\n  token: 'env:MEGA_DOUB_TEST_VAULT_TOKEN'\n" +
 		"  timeout: 1s\nstorage:\n  url: 'b2://retry-bucket/prefix'\n" +
 		"  snapshot_id: retry-main\n  password: 'vault:depot/mega-doub/retry/password'\n" +
 		"  keys:\n    b2_id: 'plain:fake-retry-b2-id'\n" +
