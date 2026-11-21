@@ -6,7 +6,7 @@ templates:
     port: 2022
     auth: ['agent']
 storage:
-  url: 'b2://local-bucket/mega-doub'
+  url: '/srv/local'
   snapshot_id: local-main
   password: 'env:MEGA_DOUB_LOCAL_STORAGE_PASSWORD'
 targets:

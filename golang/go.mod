@@ -3,21 +3,90 @@ module github.com/megalomania428/mega-doub
 go 1.26.11
 
 require (
-	github.com/megalomania428/go-lib-ci v1.0.5
+	duplicacy.invalid/v3 v3.3.0-p003
+	github.com/aws/aws-sdk-go v1.30.7
+	github.com/gilbertchen/azure-sdk-for-go v14.1.2-0.20180323033227-8fd4663cab7c+incompatible
+	github.com/gilbertchen/go-dropbox v0.0.0-20230321030224-087ef8db1916
+	github.com/gilbertchen/goamz v0.0.0-20170712012135-eada9f4e8cc2
+	github.com/megalomania428/go-lib-ci v1.0.6
+	github.com/ncw/swift/v2 v2.0.1
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v4 v4.0.0-rc.8
+	golang.org/x/net v0.61.0
+	google.golang.org/api v0.21.0
 )
 
 require (
+	cloud.google.com/go v0.38.0 // indirect
+	github.com/Azure/go-autorest v10.15.5+incompatible // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
+	github.com/aryann/difflib v0.0.0-20170710044230-e206f873d14a // indirect
+	github.com/bkaradzic/go-lz4 v1.0.0 // indirect
+	github.com/calebcase/tmpfile v1.0.3 // indirect
+	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701 // indirect
+	github.com/cloudsoda/sddl v0.0.0-20250224235906-926454e91efc // indirect
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
+	github.com/flynn/noise v1.0.0 // indirect
+	github.com/geoffgarside/ber v1.1.0 // indirect
+	github.com/gilbertchen/go-ole v1.2.0 // indirect
+	github.com/gilbertchen/gopass v0.0.0-20170109162249-bf9dde6d0d2c // indirect
+	github.com/gilbertchen/highwayhash v0.0.0-20221109044721-eeab1f4799d8 // indirect
 	github.com/go-telegram/bot v1.27.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
+	github.com/golang/protobuf v1.5.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
+	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
+	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
+	github.com/jcmturner/gofork v1.7.6 // indirect
+	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
+	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
+	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
+	github.com/jmespath/go-jmespath v0.3.0 // indirect
+	github.com/jtolio/eventkit v0.0.0-20221004135224-074cf276595b // indirect
+	github.com/jtolio/noiseconn v0.0.0-20230111204749-d7ec1a08b0b8 // indirect
+	github.com/klauspost/compress v1.16.3 // indirect
+	github.com/klauspost/cpuid v1.3.1 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
+	github.com/klauspost/reedsolomon v1.9.9 // indirect
+	github.com/kr/fs v0.1.0 // indirect
+	github.com/marstr/guid v1.1.0 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
+	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1 // indirect
+	github.com/minio/highwayhash v1.0.2 // indirect
+	github.com/mmcloughlin/avo v0.0.0-20200803215136-443f81d77104 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pkg/sftp v1.11.0 // indirect
+	github.com/pkg/xattr v0.4.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/satori/go.uuid v1.2.0 // indirect
+	github.com/spacemonkeygo/monkit/v3 v3.0.22 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/vaughan0/go-ini v0.0.0-20130923145212-a98ad7ee00ec // indirect
 	github.com/vbauerster/mpb/v8 v8.9.3 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
+	github.com/vivint/infectious v0.0.0-20200605153912-25a574ae18a3 // indirect
+	github.com/vmihailenco/msgpack v4.0.4+incompatible // indirect
+	github.com/zeebo/blake3 v0.2.3 // indirect
+	github.com/zeebo/errs v1.3.0 // indirect
+	go.opencensus.io v0.22.3 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/oauth2 v0.37.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
+	google.golang.org/appengine v1.6.5 // indirect
+	google.golang.org/genproto v0.0.0-20200409111301-baae70f3302d // indirect
+	google.golang.org/grpc v1.28.1 // indirect
+	google.golang.org/protobuf v1.28.1 // indirect
+	storj.io/common v0.0.0-20230920095429-0ce0a575e6f8 // indirect
+	storj.io/drpc v0.0.33 // indirect
+	storj.io/picobuf v0.0.2-0.20230906122608-c4ba17033c6c // indirect
+	storj.io/uplink v1.12.1 // indirect
 )

@@ -73,7 +73,7 @@ func matchRecords(t *testing.T, records, patterns []string) {
 // global, prune.enabled and check.enabled set to enabled and check.files set to true.
 func commandConfig(global string, enabled bool) string {
 	return fmt.Sprintf("---\nglobal:\n%s"+
-		"storage:\n  url: 'b2://command-bucket/prefix'\n  snapshot_id: command-main\n"+
+		"storage:\n  url: '/srv/command'\n  snapshot_id: command-main\n"+
 		"  password: 'env:MEGA_DOUB_COMMAND_PASSWORD'\n"+
 		"prune:\n  enabled: %[2]t\n  keep: ['1:7']\n"+
 		"check:\n  enabled: %[2]t\n  files: true\n  chunks: false\n"+
@@ -111,7 +111,7 @@ func Test_handle(t *testing.T) {
 	}
 	logSettings := filepath.Join(t.TempDir(), "logging.yaml")
 	if err := os.WriteFile(logSettings, []byte("---\nglobal:\n  log_format: json\n"+
-		"storage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n"+
+		"  progress: []\nstorage:\n  url: /srv/storage\n  snapshot_id: main\n"+
 		"  password: env:PASSWORD\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -163,12 +163,15 @@ func Test_handle_commands(t *testing.T) {
 	dir := t.TempDir()
 	// The configuration is given by a relative path, the records carry the absolute one.
 	t.Chdir(dir)
+	// The files draw no progress bar, as the tests of the commands need, except bar.yaml:
+	// its list is not empty for the cases of the flag over the file.
 	writeFiles(t, map[string]string{
-		"auto.yaml":    commandConfig("  progress: auto\n", false),
-		"never.yaml":   commandConfig("  progress: never\n", true),
-		"debug.yaml":   commandConfig("  log_level: debug\n", false),
+		"auto.yaml":    commandConfig("  progress: []\n", false),
+		"never.yaml":   commandConfig("  progress: []\n", true),
+		"bar.yaml":     commandConfig("  progress: [percent]\n", false),
+		"debug.yaml":   commandConfig("  log_level: debug\n  progress: []\n", false),
 		"load.yaml":    "---\nglobal:\n  timeout: 30\n",
-		"problem.yaml": commandConfig("  parallel_targets: 0\n", false),
+		"problem.yaml": commandConfig("  parallel_targets: 0\n  progress: []\n", false),
 	})
 	path := func(file string) string {
 		abs, err := filepath.Abs(file)
@@ -178,8 +181,8 @@ func Test_handle_commands(t *testing.T) {
 		return slogValue(t, abs)
 	}
 	const (
-		run    = `dry_run=false log_level=info log_format=text no_progress=false`
-		dryRun = `dry_run=true log_level=info log_format=text no_progress=false`
+		run    = `dry_run=false log_level=info log_format=text no_progress=true`
+		dryRun = `dry_run=true log_level=info log_format=text no_progress=true`
 	)
 	// command is the pattern of the command record of a stub on the file with the fields
 	// after config.
@@ -256,9 +259,9 @@ func Test_handle_commands(t *testing.T) {
 			want: 0, show: true,
 			wantRecords: []string{resolvedOne, command("list", "auto.yaml", dryRun+` revision=0`),
 				stopped("list", true)}},
-		{name: "no progress by the flag", file: "auto.yaml",
+		{name: "no progress by the flag", file: "bar.yaml",
 			args: []string{"backup", "--dry-run", "--no-progress"}, want: 0, show: true,
-			wantRecords: []string{resolvedOne, command("backup", "auto.yaml",
+			wantRecords: []string{resolvedOne, command("backup", "bar.yaml",
 				`dry_run=true log_level=info log_format=text no_progress=true`),
 				stopped("backup", true)}},
 		{name: "no progress by the configuration", file: "never.yaml",
@@ -266,10 +269,25 @@ func Test_handle_commands(t *testing.T) {
 			wantRecords: []string{resolvedOne, command("backup", "never.yaml",
 				`dry_run=true log_level=info log_format=text no_progress=true`),
 				stopped("backup", true)}},
+		{name: "no progress by the flag and the configuration", file: "auto.yaml",
+			args: []string{"backup", "--dry-run", "--no-progress"}, want: 0, show: true,
+			wantRecords: []string{resolvedOne, command("backup", "auto.yaml",
+				`dry_run=true log_level=info log_format=text no_progress=true`),
+				stopped("backup", true)}},
+		{name: "progress by the configuration", file: "bar.yaml",
+			args: []string{"backup", "--dry-run"}, want: 0, show: true,
+			wantRecords: []string{resolvedOne, command("backup", "bar.yaml",
+				`dry_run=true log_level=info log_format=text no_progress=false`),
+				stopped("backup", true)}},
+		{name: "progress by the flag false", file: "bar.yaml",
+			args: []string{"backup", "--dry-run", "--no-progress=false"}, want: 0, show: true,
+			wantRecords: []string{resolvedOne, command("backup", "bar.yaml",
+				`dry_run=true log_level=info log_format=text no_progress=false`),
+				stopped("backup", true)}},
 		{name: "log level from the configuration", file: "debug.yaml",
 			args: []string{"backup", "--dry-run"}, want: 0, show: true,
 			wantRecords: []string{resolvedOne, command("backup", "debug.yaml",
-				`dry_run=true log_level=debug log_format=text no_progress=false`),
+				`dry_run=true log_level=debug log_format=text no_progress=true`),
 				stopped("backup", true)}},
 		{name: "config validate", file: "auto.yaml", args: []string{"config", "validate"},
 			want: 0,
@@ -376,7 +394,7 @@ func (failingWriter) Write([]byte) (int, error) {
 
 func Test_handle_output(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "output.yaml")
-	writeFiles(t, map[string]string{file: commandConfig("  progress: auto\n", false)})
+	writeFiles(t, map[string]string{file: commandConfig("  progress: []\n", false)})
 	const failed = `level=ERROR msg="output write failed" error="stdout is closed"`
 	tests := []struct {
 		name        string
@@ -418,11 +436,12 @@ func Test_handle_canary(t *testing.T) {
 	// validation.
 	const valid = "  snapshot_id: canary-main\n" +
 		"  password: 'env:MEGA_DOUB_CANARY_PASSWORD'\ntargets:\n  - name: local\n" +
-		"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n"
+		"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n" +
+		"global: {progress: []}\n"
 	vaultConfig := "---\nvault:\n" + // kingfisher:ignore - next line is fake
 		"  address: 'https://u:fake-canary-vault@vault.example.invalid'\n" +
 		"  token: 'env:MEGA_DOUB_CANARY_TOKEN'\n" +
-		"storage:\n  url: 'b2://canary-bucket/prefix'\n" + valid
+		"storage:\n  url: '/srv/canary'\n" + valid
 	writeFiles(t, map[string]string{
 		escaped:  "---\nstorage:\n  url: 'sftp://u:p%40ss@h.example.invalid/x'\n" + valid,
 		vault:    vaultConfig,
@@ -439,9 +458,8 @@ func Test_handle_canary(t *testing.T) {
 		canaries []string
 	}{
 		{name: "full", path: full,
-			canaries: []string{"fake-b2-key", "fake-password", "fake-url-password",
-				"fake-source-token"}},
-		{name: "escaped password in the storage URL", path: escaped,
+			canaries: []string{"fake-ssh-password", "fake-password", "fake-source-token"}},
+		{name: "escaped password in the storage URL", path: escaped, invalid: true,
 			canaries: []string{"p%40ss", "p@ss"}},
 		{name: "password in the vault address", path: vault, invalid: true,
 			canaries: []string{"fake-canary-vault"}},
@@ -481,8 +499,8 @@ func Test_handle_outputTooLarge(t *testing.T) {
 	// The file is below the limit of 1048576 bytes, the defaults filled in make the
 	// output larger.
 	var b strings.Builder
-	b.WriteString("---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n" +
-		"  password: env:PASSWORD\ntargets:\n")
+	b.WriteString("---\nglobal: {progress: []}\nstorage:\n  url: /srv/storage\n" +
+		"  snapshot_id: main\n  password: env:PASSWORD\ntargets:\n")
 	for i := range 5000 {
 		fmt.Fprintf(&b, "  - {name: host%d, transport: ssh, host: h%d.example.invalid, "+
 			"user: backup, known_hosts: /etc/ssh/ssh_known_hosts}\n", i, i)

@@ -15,11 +15,11 @@ import (
 
 // unavailableConfig is a configuration with two vault: references and a Vault address
 // whose connections are refused at once.
-const unavailableConfig = "---\nglobal:\n  log_format: json\nvault:\n" +
+const unavailableConfig = "---\nglobal:\n  log_format: json\n  progress: []\nvault:\n" +
 	"  address: 'https://127.0.0.1:1'\n  token: 'env:VAULT_TOKEN'\n  timeout: 2s\n" +
 	"storage:\n  url: 'b2://bucket/prefix'\n  snapshot_id: main\n" +
 	"  password: 'vault:depot/mega-doub/prod/storage-password'\n  keys:\n" +
-	"    b2_key: 'vault:depot/mega-doub/prod/b2-key'\n"
+	"    b2_id: 'plain:fake-prod-b2-id'\n    b2_key: 'vault:depot/mega-doub/prod/b2-key'\n"
 
 func Test_run_vaultUnavailable(t *testing.T) {
 	t.Setenv("VAULT_TOKEN", "fake-token")

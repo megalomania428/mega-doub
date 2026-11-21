@@ -56,7 +56,8 @@ func writeTLSConfig(t *testing.T, address, caFile string) string {
 		"    b2_key: 'vault:depot/mega-doub/tls/b2-key'\n" +
 		"    b2_id: 'vault:depot/mega-doub/tls/b2-id'\n" +
 		"targets:\n  - name: local\n    transport: local\n" +
-		"    sources: [{type: test, id: data, path: /srv/data}]\n"})
+		"    sources: [{type: test, id: data, path: /srv/data}]\n" +
+		"global: {progress: []}\n"})
 	return path
 }
 

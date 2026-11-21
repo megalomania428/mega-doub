@@ -2,7 +2,7 @@
 # Elements of prune.keep out of the format n:m, out of the range of int or with an age
 # below 1, one problem per element.
 storage:
-  url: 'b2://keep-bucket/mega-doub'
+  url: '/srv/keep'
   snapshot_id: keep-main
   password: 'env:MEGA_DOUB_KEEP_STORAGE_PASSWORD'
 prune:

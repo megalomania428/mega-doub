@@ -301,6 +301,9 @@ func (l *loader) decode(doc *yaml.Node) *Config {
 	if cfg.Prune.Keep == nil {
 		cfg.Prune.Keep = []string{}
 	}
+	if cfg.Global.Progress == nil {
+		cfg.Global.Progress = defaultProgress()
+	}
 	cfg.Targets = make([]Target, len(root.Targets))
 	for i := range root.Targets {
 		path := "targets[" + strconv.Itoa(i) + "]"

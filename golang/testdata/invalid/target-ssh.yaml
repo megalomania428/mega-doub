@@ -5,7 +5,7 @@ templates:
   wrong-port: &wrong-port
     port: 0
 storage:
-  url: 'b2://ssh-bucket/mega-doub'
+  url: '/srv/ssh'
   snapshot_id: ssh-main
   password: 'env:MEGA_DOUB_SSH_STORAGE_PASSWORD'
 targets:

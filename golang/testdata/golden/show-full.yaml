@@ -8,7 +8,7 @@ global:
   parallel_sources: 3
   log_level: debug
   log_format: json
-  progress: never
+  progress: []
   timeout: 6h30m0s
   retry:
     max_retries_time: 2m0s
@@ -23,14 +23,14 @@ vault:
   ca_file: /usr/local/share/ca-certificates/fake-vault.crt
 storage:
   name: offsite
-  url: sftp://u:***@h.example.invalid/full
+  url: sftp://u@h.example.invalid/full
   snapshot_id: full-main
   password: vault:depot/mega-doub/full/storage-password
   threads: 16
   tag: full mega-doub
   keys:
-    b2_id: vault:depot/mega-doub/full/b2-id
-    b2_key: plain:***
+    ssh_key_file: vault:depot/mega-doub/full/ssh-key-file
+    ssh_password: plain:***
 prune:
   enabled: true
   keep:

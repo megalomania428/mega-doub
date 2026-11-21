@@ -35,14 +35,15 @@ const (
 
 // retryVaultConfig returns a configuration with the debug level, the schedule of
 // global.retry, the Vault server at address with the attempt timeout of 1 s, the
-// password from the secret mega-doub/retry and the key b2_key from the secret
-// mega-doub/forbidden.
+// password from the secret mega-doub/retry, the plain key b2_id and the key b2_key from
+// the secret mega-doub/forbidden.
 func retryVaultConfig(address, schedule string) string {
-	return "---\nglobal:\n  log_level: debug\n  retry:\n" + schedule + "vault:\n" +
-		"  address: '" + address + "'\n  token: 'env:MEGA_DOUB_TEST_VAULT_TOKEN'\n" +
+	return "---\nglobal:\n  log_level: debug\n  progress: []\n  retry:\n" + schedule +
+		"vault:\n  address: '" + address + "'\n  token: 'env:MEGA_DOUB_TEST_VAULT_TOKEN'\n" +
 		"  timeout: 1s\nstorage:\n  url: 'b2://retry-bucket/prefix'\n" +
 		"  snapshot_id: retry-main\n  password: 'vault:depot/mega-doub/retry/password'\n" +
-		"  keys:\n    b2_key: 'vault:depot/mega-doub/forbidden/password'\n" +
+		"  keys:\n    b2_id: 'plain:fake-retry-b2-id'\n" +
+		"    b2_key: 'vault:depot/mega-doub/forbidden/password'\n" +
 		"targets:\n  - name: local\n    transport: local\n" +
 		"    sources: [{type: test, id: data, path: /srv/data}]\n"
 }

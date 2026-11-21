@@ -5,7 +5,6 @@ package config
 
 import (
 	"fmt"
-	"maps"
 	"math/bits"
 	"net/url"
 	"path/filepath"
@@ -36,7 +35,7 @@ func (r Result) Err() error {
 // Validate checks the loaded configuration by the rules of its sections in the order
 // of the schema. It does not touch the file system.
 func Validate(l *Loaded) Result {
-	v := &validator{l: l}
+	v := &validator{l: l, rejected: map[string]bool{}}
 	v.global()
 	v.retry()
 	v.vault()
@@ -55,6 +54,8 @@ type validator struct {
 	l        *Loaded
 	problems []Problem
 	warnings []Problem
+	// rejected are the paths of the storage.keys that storageKeys reported.
+	rejected map[string]bool
 }
 
 // problem records a problem of the field at path at the position of the field.
@@ -116,8 +117,8 @@ func quoted(value string) string {
 // instanceName is the pattern of global.instance.
 var instanceName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// progressModes are the values of global.progress.
-var progressModes = []string{"auto", "always", "never"}
+// progressElements are the elements of global.progress in the order of its default.
+var progressElements = []string{"bytes", "elapsed", "rate", "bar", "percent", "eta"}
 
 // global checks the global section.
 func (v *validator) global() {
@@ -136,12 +137,26 @@ func (v *validator) global() {
 	if g.ParallelSources < 1 {
 		v.problem("global.parallel_sources", "must be at least 1")
 	}
-	if !slices.Contains(progressModes, g.Progress) {
-		v.problem("global.progress",
-			quoted(g.Progress)+"must be one of "+strings.Join(progressModes, ", "))
-	}
+	v.progress(g.Progress)
 	if g.Timeout <= 0 {
 		v.problem("global.timeout", "must be greater than zero")
+	}
+}
+
+// progress checks the elements of global.progress: each one is known and given once,
+// an unknown repeat gets both problems.
+func (v *validator) progress(elements ProgressElements) {
+	seen := map[string]bool{}
+	for i, element := range elements {
+		item := fmt.Sprintf("global.progress[%d]", i)
+		if !slices.Contains(progressElements, element) {
+			v.problem(item,
+				quoted(element)+"must be one of "+strings.Join(progressElements, ", "))
+		}
+		if seen[element] {
+			v.problem(item, quoted(element)+"is not unique")
+		}
+		seen[element] = true
 	}
 }
 
@@ -299,8 +314,8 @@ func vaultAddress(s string) (scheme, msg string) {
 // snapshotID is the pattern of storage.snapshot_id, the one of duplicacy.
 var snapshotID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// storage checks the storage section. The messages leave out the URL and the parse
-// error, they may hold a password.
+// storage checks the storage section. The messages leave out the URL, it may hold a
+// password.
 func (v *validator) storage() {
 	s := v.l.Config.Storage
 	switch {
@@ -309,16 +324,11 @@ func (v *validator) storage() {
 	case strings.EqualFold(s.Name, "ssh"):
 		v.problem("storage.name", quoted(s.Name)+"is reserved by duplicacy")
 	}
+	typ := ""
 	if v.required("storage.url", s.URL) {
-		u, err := url.Parse(s.URL)
-		if err != nil || u.Scheme == "" || u.Opaque != "" || u.Host == "" {
-			v.problem("storage.url", "must be a URL with a scheme and a host")
-		}
-		if err == nil && u.User != nil {
-			// An empty password is a password too.
-			if _, ok := u.User.Password(); ok {
-				v.warning("storage.url", "url contains a password")
-			}
+		var msg string
+		if typ, msg = storageURL(s.URL); msg != "" {
+			v.problem("storage.url", msg)
 		}
 	}
 	if v.required("storage.snapshot_id", s.SnapshotID) &&
@@ -330,22 +340,16 @@ func (v *validator) storage() {
 	if s.Threads < 1 {
 		v.problem("storage.threads", "must be at least 1")
 	}
-	for _, name := range slices.Sorted(maps.Keys(s.Keys)) {
-		path := joinKey("storage.keys", name)
-		if name == "" {
-			v.problem(path, "required")
-			continue
-		}
-		v.required(path, string(s.Keys[name]))
-	}
+	v.storageKeys(typ)
 }
 
 // retention is the pattern of an element n:m of prune.keep.
 var retention = regexp.MustCompile(`^[0-9]+:[0-9]+$`)
 
-// prune checks the prune section. An element of prune.keep gets at most one problem:
-// its format, a number out of the range of int, its age m below 1 or its age not below
-// the age of the nearest previous element with valid format and numbers in int range.
+// prune checks the prune section and warns about an exclusive prune. An element of
+// prune.keep gets at most one problem: its format, a number out of the range of int,
+// its age m below 1 or its age not below the age of the nearest previous element with
+// valid format and numbers in int range.
 func (v *validator) prune() {
 	p := v.l.Config.Prune
 	if p.Enabled && len(p.Keep) == 0 {
@@ -375,6 +379,10 @@ func (v *validator) prune() {
 	}
 	if p.Threads < 1 {
 		v.problem("prune.threads", "must be at least 1")
+	}
+	if p.Exclusive {
+		v.warning("prune.exclusive", "exclusive prune removes the chunks at once, it is "+
+			"safe only when nothing else uses the storage")
 	}
 }
 
@@ -518,12 +526,14 @@ func (v *validator) sources(i int, sources []SourceConfig) {
 }
 
 // secrets checks the syntax of every secret reference, except the secret fields of the
-// local targets and a vault: reference in vault.token, which their rules report. A value
-// without a prefix gives a warning; the messages leave out the value.
+// local targets, the rejected storage.keys and a vault: reference in vault.token, which
+// their rules report. A value without a prefix gives a warning; the messages leave out
+// the value.
 func (v *validator) secrets() {
 	skip := v.localSecrets()
 	WalkRefs(v.l.Config, func(path string, ref *secret.Ref) {
-		if skip[path] || (path == "vault.token" && strings.HasPrefix(string(*ref), "vault:")) {
+		if skip[path] || v.rejected[path] ||
+			(path == "vault.token" && strings.HasPrefix(string(*ref), "vault:")) {
 			return
 		}
 		parsed, err := secret.Parse(*ref)

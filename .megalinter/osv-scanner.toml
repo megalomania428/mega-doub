@@ -1,0 +1,6 @@
+# cspell:ignore duplicacy klauspost vulns
+# github.com/klauspost/compress v1.16.3 is a transitive dependency of duplicacy
+# v3.3.0-p003 in golang/go.mod; osv-scanner 2.3.8 can ignore only by ID.
+[[IgnoredVulns]]
+id = "GO-2026-6865"
+reason = "Dependency of duplicacy v3.3.0-p003; fixed in v1.20.2, update in update-graves"

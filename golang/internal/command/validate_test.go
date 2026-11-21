@@ -64,13 +64,13 @@ func globalPlaces(records []record) []place {
 	return places
 }
 
-// warningPlaces returns the places of the warning records of vault and storage.
+// warningPlaces returns the places of the warning records of vault, storage and prune.
 func warningPlaces(records []record) []place {
 	var places []place
 	for _, r := range records {
 		path, _ := r["path"].(string)
-		if r["msg"] != "configuration warning" ||
-			!strings.HasPrefix(path, "vault.") && !strings.HasPrefix(path, "storage.") {
+		if r["msg"] != "configuration warning" || !strings.HasPrefix(path, "vault.") &&
+			!strings.HasPrefix(path, "storage.") && !strings.HasPrefix(path, "prune.") {
 			continue
 		}
 		line, _ := r["line"].(float64)
@@ -85,15 +85,14 @@ var values = []place{
 	{"global.instance", 8, 13},
 	{"global.parallel_targets", 9, 21},
 	{"global.parallel_sources", 10, 21},
-	{"global.progress", 11, 13},
+	{"global.progress[0]", 11, 14},
 	{"global.timeout", 12, 12},
 }
 
 // secrets are the URLs and the secret references of the files of the tests, they never
 // appear in the records.
-var secrets = []string{"b2://values-bucket", "MEGA_DOUB_VALUES_STORAGE_PASSWORD",
-	"b2://example-bucket", "MEGA_DOUB_EXAMPLE", "vault.example.invalid",
-	"fake-warn-password", "MEGA_DOUB_WARN"}
+var secrets = []string{"/srv/values", "MEGA_DOUB_VALUES_STORAGE_PASSWORD",
+	"b2://example-bucket", "MEGA_DOUB_EXAMPLE", "vault.example.invalid", "MEGA_DOUB_WARN"}
 
 func Test_handle_validate(t *testing.T) {
 	const (
@@ -105,12 +104,13 @@ func Test_handle_validate(t *testing.T) {
 		0o600); err != nil {
 		t.Fatal(err)
 	}
-	// warned has the warnings of vault.address at 3:12 and of storage.url at 5:8.
+	// warned has the warnings of vault.address at 3:12 and of prune.exclusive at 9:14.
 	warned := filepath.Join(t.TempDir(), "warned.yaml")
 	if err := os.WriteFile(warned, []byte("---\nvault:\n"+
 		"  address: 'http://vault.example.invalid'\nstorage:\n"+
-		"  url: 'sftp://u:fake-warn-password@h.example.invalid/x'\n"+
-		"  snapshot_id: warn-main\n  password: 'env:MEGA_DOUB_WARN_STORAGE_PASSWORD'\n"),
+		"  url: 'sftp://u@h.example.invalid/x'\n"+
+		"  snapshot_id: warn-main\n  password: 'env:MEGA_DOUB_WARN_STORAGE_PASSWORD'\n"+
+		"prune:\n  exclusive: true\nglobal: {progress: []}\n"),
 		0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func Test_handle_validate(t *testing.T) {
 		want   int
 		// wantPlaces are the problem records of global and global.retry in their order.
 		wantPlaces []place
-		// wantWarnings are the warning records of vault and storage in their order.
+		// wantWarnings are the warning records of vault, storage and prune in their order.
 		wantWarnings []place
 		// wantTail are the msg of the last records in their order.
 		wantTail []string
@@ -132,7 +132,7 @@ func Test_handle_validate(t *testing.T) {
 		{name: "valid", path: example, want: 0,
 			wantTail: []string{"configuration is valid"}},
 		{name: "warnings", path: warned, want: 0,
-			wantWarnings: []place{{"vault.address", 3, 12}, {"storage.url", 5, 8}},
+			wantWarnings: []place{{"vault.address", 3, 12}, {"prune.exclusive", 9, 14}},
 			wantTail:     []string{"configuration is valid"}},
 		{name: "loading error first", path: mixed, want: 2,
 			wantTail: []string{"invalid configuration"}},
@@ -154,7 +154,7 @@ func Test_handle_validate(t *testing.T) {
 			}
 			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			args := []string{"config", "validate", "--log-level", "debug", "--log-format",
-				"json", "-c", tt.path}
+				"json", "--no-progress", "-c", tt.path}
 			got := cli.Execute(ctx, args, stdout, stderr, cli.Build{}, handler)
 			if got != tt.want {
 				t.Errorf("cli.Execute() = %v, want %v", got, tt.want)
@@ -230,11 +230,12 @@ func Test_handle_validate_warnings(t *testing.T) {
 	// empty has no targets, the warning is at 1:1.
 	empty := filepath.Join(dir, "empty.yaml")
 	for path, content := range map[string]string{
-		unprefixed: "---\nstorage:\n  url: 'b2://unprefixed-bucket/prefix'\n" +
+		unprefixed: "---\nstorage:\n  url: '/srv/unprefixed'\n" +
 			"  snapshot_id: unprefixed-main\n  password: 'fake-unprefixed-password'\n" +
-			"targets:\n  - name: db01\n    transport: local\n    sources: []\n",
-		empty: "---\nstorage:\n  url: 'b2://empty-bucket/prefix'\n  snapshot_id: empty-main\n" +
-			"  password: 'env:MEGA_DOUB_EMPTY_STORAGE_PASSWORD'\n",
+			"targets:\n  - name: db01\n    transport: local\n    sources: []\n" +
+			"global: {progress: []}\n",
+		empty: "---\nstorage:\n  url: '/srv/empty'\n  snapshot_id: empty-main\n" +
+			"  password: 'env:MEGA_DOUB_EMPTY_STORAGE_PASSWORD'\nglobal: {progress: []}\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -252,7 +253,8 @@ func Test_handle_validate_warnings(t *testing.T) {
 		want []warning
 	}{
 		{name: "full", path: full, want: []warning{
-			{"storage.url", 30, 8, "url contains a password"},
+			{"prune.exclusive", 43, 14, "exclusive prune removes the chunks at once, it is " +
+				"safe only when nothing else uses the storage"},
 			{"targets[0].password", 61, 15, "value without prefix is treated as plain"},
 		}},
 		{name: "value without prefix and no sources", path: unprefixed, want: []warning{

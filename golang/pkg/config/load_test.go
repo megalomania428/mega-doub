@@ -45,8 +45,9 @@ func defaults(targets ...config.Target) *config.Config {
 			ParallelSources: 2,
 			LogLevel:        "info",
 			LogFormat:       "text",
-			Progress:        "auto",
-			Timeout:         config.Duration(12 * time.Hour),
+			Progress: config.ProgressElements{"bytes", "elapsed", "rate", "bar", "percent",
+				"eta"},
+			Timeout: config.Duration(12 * time.Hour),
 			Retry: config.Retry{
 				MaxRetriesTime:      config.Duration(111 * time.Second),
 				BackoffInitial:      config.Duration(time.Second),
@@ -106,7 +107,7 @@ func fullConfig() *config.Config {
 			ParallelSources: 3,
 			LogLevel:        "debug",
 			LogFormat:       "json",
-			Progress:        "never",
+			Progress:        config.ProgressElements{},
 			Timeout:         config.Duration(6*time.Hour + 30*time.Minute),
 			Retry: config.Retry{
 				MaxRetriesTime:      config.Duration(2 * time.Minute),
@@ -124,14 +125,14 @@ func fullConfig() *config.Config {
 		},
 		Storage: config.Storage{
 			Name:       "offsite",
-			URL:        "sftp://u:fake-url-password@h.example.invalid/full",
+			URL:        "sftp://u@h.example.invalid/full",
 			SnapshotID: "full-main",
 			Password:   "vault:depot/mega-doub/full/storage-password",
 			Threads:    16,
 			Tag:        "full mega-doub",
 			Keys: map[string]secret.Ref{
-				"b2_id":  "vault:depot/mega-doub/full/b2-id",
-				"b2_key": "plain:fake-b2-key",
+				"ssh_key_file": "vault:depot/mega-doub/full/ssh-key-file",
+				"ssh_password": "plain:fake-ssh-password",
 			},
 		},
 		Prune: config.Prune{Enabled: true, Keep: []string{"0:365", "7:30", "1:7"}, Threads: 2,
@@ -178,10 +179,14 @@ func TestLoad(t *testing.T) {
 	zeros.Global.StateDir = "/var/lib/mega-doub/state/"
 	zeros.Global.ParallelTargets = 0
 	zeros.Global.Timeout = 0
+	zeros.Global.Progress = config.ProgressElements{}
 	zeros.Global.Retry.BackoffCap = 0
 	zeros.Storage.Name = ""
 	zeros.Storage.Threads = 0
 	zeros.Check.TestRestoreBytes = 0
+	reversed := defaults()
+	reversed.Global.Progress = config.ProgressElements{"eta", "percent", "bar", "rate",
+		"elapsed", "bytes"}
 	merged := defaults()
 	merged.Global.Instance = "other"
 	merged.Global.CopyDir = "/srv/copy"
@@ -253,7 +258,8 @@ func TestLoad(t *testing.T) {
 		{
 			name: "explicit zero values",
 			content: "---\nglobal:\n  instance: ''\n  copy_dir: ''\n  parallel_targets: 0\n" +
-				"  timeout: 0\n  retry:\n    backoff_cap: 0s\nstorage:\n  name: ''\n" +
+				"  progress: []\n  timeout: 0\n  retry:\n    backoff_cap: 0s\n" +
+				"storage:\n  name: ''\n" +
 				"  threads: 0\nprune:\n  enabled: false\n" +
 				"  keep: []\ncheck:\n  test_restore_bytes: 0\ntargets:\n  - name: ''\n" +
 				"    port: 0\n    auth: []\n    connect_timeout: 0s\n    sudo: false\n" +
@@ -263,11 +269,16 @@ func TestLoad(t *testing.T) {
 		{
 			name: "explicit null values",
 			content: "---\nglobal:\n  instance: null\n  copy_dir: null\n  state_dir:\n" +
-				"  log_level: null\n  log_format: ~\n  timeout: null\nvault: null\n" +
-				"prune:\n  keep: null\ncheck:\n  test_restore_bytes: null\ntargets:\n" +
-				"  - name: a\n    port: null\n    auth: null\n    connect_timeout: null\n" +
-				"    sources: null\n",
+				"  log_level: null\n  log_format: ~\n  progress: null\n  timeout: null\n" +
+				"vault: null\nprune:\n  keep: null\ncheck:\n  test_restore_bytes: null\n" +
+				"targets:\n  - name: a\n    port: null\n    auth: null\n" +
+				"    connect_timeout: null\n    sources: null\n",
 			want: defaults(defaultTarget("a")),
+		},
+		{
+			name:    "progress elements in any order",
+			content: "---\nglobal:\n  progress: [eta, percent, bar, rate, elapsed, bytes]\n",
+			want:    reversed,
 		},
 		{
 			name: "directory from a template",
@@ -287,7 +298,7 @@ func TestLoad(t *testing.T) {
 		{
 			// The aliases pass the ratio check of the strict decoding only.
 			name: "aliases in the global merge key",
-			content: "---\ntemplates:\n  a: &a {progress: auto}\n  g: &g {copy_dir: " +
+			content: "---\ntemplates:\n  a: &a {progress: null}\n  g: &g {copy_dir: " +
 				"/srv/custom, state_dir: /srv/state, log_level: error, log_format: json}\n" +
 				"storage: {keys: {k0: 'env:FAKE_0'}}\nglobal:\n  <<: [" +
 				strings.Repeat("*a, ", 250) + "*g]\n",
@@ -422,6 +433,25 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{
 				"wrong-type.yaml:3:12: storage.threads: cannot construct !!str into int",
 			},
+		},
+		{
+			name:    "progress as a former mode",
+			content: "---\nglobal:\n  progress: never\n",
+			wantErr: []string{"{file}:3:13: global.progress: invalid progress: want a list " +
+				"of bytes, elapsed, rate, bar, percent, eta"},
+			hidden: "never",
+		},
+		{
+			name:    "progress as the former default",
+			content: "---\nglobal:\n  progress: auto\n",
+			wantErr: []string{"{file}:3:13: global.progress: invalid progress: want a list"},
+			hidden:  "auto",
+		},
+		{
+			name:    "progress as a forced mode",
+			content: "---\nglobal:\n  progress: always\n",
+			wantErr: []string{"{file}:3:13: global.progress: invalid progress: want a list"},
+			hidden:  "always",
 		},
 		{
 			name:    "alias in two sections",

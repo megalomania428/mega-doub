@@ -68,7 +68,8 @@ const resolveConfig = "---\nstorage:\n  url: 'b2://resolve-bucket/prefix'\n" +
 	"  snapshot_id: resolve-main\n  password: 'env:MEGA_DOUB_RESOLVE_A'\n  keys:\n" +
 	"    b2_key: &unset 'env:MEGA_DOUB_RESOLVE_B'\n    b2_id: *unset\n" +
 	"targets:\n  - name: local\n    transport: local\n" +
-	"    sources: [{type: test, id: data, path: /srv/data}]\n"
+	"    sources: [{type: test, id: data, path: /srv/data}]\n" +
+	"global: {progress: []}\n"
 
 func Test_handle_resolveCanary(t *testing.T) {
 	const (
@@ -80,13 +81,14 @@ func Test_handle_resolveCanary(t *testing.T) {
 	empty := filepath.Join(dir, "empty")
 	resolved := filepath.Join(dir, "resolved.yaml")
 	failed := filepath.Join(dir, "failed.yaml")
-	// canaryConfig returns a configuration with the password in the storage URL, the
-	// value of the password from the environment and the value of a key from the file.
+	// canaryConfig returns a configuration with the value of the password from the
+	// environment and the value of a key from the file.
 	canaryConfig := func(file string) string {
-		return "---\nstorage:\n  url: 'sftp://u:p%40ss@h.example.invalid/x'\n" +
+		return "---\nstorage:\n  url: 'sftp://u@h.example.invalid/x'\n" +
 			"  snapshot_id: canary-main\n  password: 'env:MEGA_DOUB_CANARY_ENV'\n" +
-			"  keys:\n    b2_key: 'file:" + file + "'\ntargets:\n  - name: local\n" +
-			"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n"
+			"  keys:\n    ssh_password: 'file:" + file + "'\ntargets:\n  - name: local\n" +
+			"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n" +
+			"global: {progress: []}\n"
 	}
 	writeFiles(t, map[string]string{
 		key:      " " + fileCanary + "\r\n",
@@ -107,10 +109,10 @@ func Test_handle_resolveCanary(t *testing.T) {
 			name:       "empty file",
 			path:       failed,
 			want:       2,
-			wantStderr: []string{"secret resolution failed", "storage.keys.b2_key", empty},
+			wantStderr: []string{"secret resolution failed", "storage.keys.ssh_password", empty},
 		},
 	}
-	canaries := []string{envCanary, fileCanary, "p%40ss", "p@ss"}
+	canaries := []string{envCanary, fileCanary}
 	commands := [][]string{{"config", "validate", "--resolve"}, {"backup", "--dry-run"}}
 	for _, tt := range tests {
 		for _, format := range []string{"text", "json"} {
@@ -150,7 +152,8 @@ func Test_handle_resolveErrors(t *testing.T) {
 		"        path: /srv/data\n        token: 'env:MEGA_DOUB_RESOLVE_C'\nstorage:\n" +
 		"  url: 'b2://resolve-bucket/prefix'\n  snapshot_id: resolve-main\n" +
 		"  password: 'env:MEGA_DOUB_RESOLVE_A'\n  keys:\n" +
-		"    b2_key: &unset 'env:MEGA_DOUB_RESOLVE_B'\n    b2_id: *unset\n"})
+		"    b2_key: &unset 'env:MEGA_DOUB_RESOLVE_B'\n    b2_id: *unset\n" +
+		"global: {progress: []}\n"})
 	abs, err := filepath.Abs(file)
 	if err != nil {
 		t.Fatal(err)
@@ -190,9 +193,10 @@ func Test_handle_resolveVault(t *testing.T) {
 	vaultConfig := func(password string) string {
 		return "---\nvault:\n  address: 'https://vault.example.invalid'\n" +
 			"  token: 'env:MEGA_DOUB_RESOLVE_TOKEN'\nstorage:\n" +
-			"  url: 'b2://resolve-bucket/prefix'\n  snapshot_id: resolve-main\n" +
+			"  url: '/srv/resolve'\n  snapshot_id: resolve-main\n" +
 			"  password: '" + password + "'\ntargets:\n  - name: local\n" +
-			"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n"
+			"    transport: local\n    sources: [{type: test, id: data, path: /srv/data}]\n" +
+			"global: {progress: []}\n"
 	}
 	writeFiles(t, map[string]string{
 		unused: vaultConfig("plain:fake-resolve-password"),
@@ -354,7 +358,8 @@ func Test_handle_resolveExample(t *testing.T) {
 	for _, args := range [][]string{{"config", "validate", "--resolve"},
 		{"backup", "--dry-run"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			got, _, stderr := execute(t, Deps{}, append([]string{"-c", example}, args...)...)
+			got, _, stderr := execute(t, Deps{}, append([]string{"--no-progress", "-c", example},
+				args...)...)
 			if got != 0 {
 				t.Errorf("cli.Execute() = %v, want 0: %s", got, stderr)
 			}

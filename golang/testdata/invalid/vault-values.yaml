@@ -1,7 +1,7 @@
 ---
 # Values out of the rules of the vault section, one problem per key.
 storage:
-  url: 'b2://vault-bucket/mega-doub'
+  url: '/srv/vault'
   snapshot_id: vault-main
   password: 'env:MEGA_DOUB_VAULT_STORAGE_PASSWORD'
 vault:

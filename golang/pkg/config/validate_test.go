@@ -1,4 +1,5 @@
-// cspell:ignore doub duplicacy
+// cspell:ignore acd doub duplicacy gcd gcs hubic minio minios odb sftpc storj wasabi
+// cspell:ignore smb webdav
 
 package config_test
 
@@ -25,7 +26,8 @@ var ownSections = []string{"vault", "storage", "prune", "check"}
 // sectionWarnings are the warnings of the rules of the sections; the other warnings on
 // their paths, such as the ones of the secret references, are not compared.
 var sectionWarnings = []string{"vault token is sent in clear text",
-	"url contains a password"}
+	"exclusive prune removes the chunks at once, it is safe only when nothing else uses " +
+		"the storage"}
 
 // owned tells whether the path belongs to one of the sections, or to global and
 // global.retry without sections.
@@ -50,7 +52,7 @@ func TestValidate(t *testing.T) {
 	}
 	const invalid = "../../testdata/invalid/"
 	// base is a valid storage section of five lines before the section of a test.
-	const base = "---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n" +
+	const base = "---\nstorage:\n  url: /srv/storage\n  snapshot_id: main\n" +
 		"  password: env:PASSWORD\n"
 	// address returns a document with the vault address at 7:12.
 	address := func(s string) string { return base + "vault:\n  address: '" + s + "'\n" }
@@ -59,10 +61,19 @@ func TestValidate(t *testing.T) {
 		return "---\nstorage:\n  url: '" + s + "'\n  snapshot_id: main\n" +
 			"  password: env:PASSWORD\n"
 	}
+	// storageKeys returns a document with the storage URL at 3:8, the key keys at 6:3 and
+	// the given lines of the keys from 7:5 on.
+	storageKeys := func(s string, keys ...string) string {
+		doc := storage(s) + "  keys:\n"
+		for _, k := range keys {
+			doc += "    " + k + "\n"
+		}
+		return doc
+	}
 	// vaultRequired are the problems of a vault: reference without the vault section.
 	vaultRequired := []want{{"vault.address", 1, 1, "required"},
 		{"vault.token", 1, 1, "required"}}
-	tests := []struct {
+	type row struct {
 		name string
 		// path is a file of testdata, content is written to a temporary file instead.
 		path    string
@@ -75,7 +86,8 @@ func TestValidate(t *testing.T) {
 		hidden string
 		// all compares every problem and every warning, sections are left unused.
 		all bool
-	}{
+	}
+	tests := []row{
 		{name: "example", path: "../../testdata/example.yaml"},
 		{name: "full", path: "../../testdata/full.yaml"},
 		{
@@ -85,7 +97,8 @@ func TestValidate(t *testing.T) {
 				{"global.instance", 8, 13, `"a/b" must match ^[A-Za-z0-9_-]+$`},
 				{"global.parallel_targets", 9, 21, "must be at least 1"},
 				{"global.parallel_sources", 10, 21, "must be at least 1"},
-				{"global.progress", 11, 13, `"foo" must be one of auto, always, never`},
+				{"global.progress[0]", 11, 14,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
 				{"global.timeout", 12, 12, "must be greater than zero"},
 			},
 		},
@@ -103,12 +116,12 @@ func TestValidate(t *testing.T) {
 			// An empty value is left out of the message.
 			name: "empty strings",
 			content: "---\nglobal:\n  instance: ''\n  copy_dir: ''\n  state_dir: ''\n" +
-				"  progress: ''\n",
+				"  progress: ['']\n",
 			want: []want{
 				{"global.instance", 3, 13, "must match"},
 				{"global.copy_dir", 4, 13, "must be an absolute path"},
 				{"global.state_dir", 5, 14, "must be an absolute path"},
-				{"global.progress", 6, 13, "must be one of"},
+				{"global.progress[0]", 6, 14, "must be one of"},
 			},
 		},
 		{
@@ -116,6 +129,50 @@ func TestValidate(t *testing.T) {
 			content: "---\nglobal:\n  instance: null\n  copy_dir: null\n" +
 				"  parallel_targets: null\n  progress: null\n  timeout: null\n" +
 				"  retry:\n    backoff_cap: null\n",
+		},
+		{
+			name:    "progress elements in any order",
+			content: "---\nglobal:\n  progress: [eta, percent, bar, rate, elapsed, bytes]\n",
+		},
+		{
+			name:    "empty progress",
+			content: "---\nglobal:\n  progress: []\n",
+		},
+		{
+			name:    "null progress element",
+			content: "---\nglobal:\n  progress: [null]\n",
+			want:    []want{{"global.progress[0]", 3, 14, "must be one of"}},
+		},
+		{
+			name:    "null progress element keeps its index",
+			content: "---\nglobal:\n  progress: [percent, null, foo]\n",
+			want: []want{
+				{"global.progress[1]", 3, 23, "must be one of"},
+				{"global.progress[2]", 3, 29,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
+			},
+		},
+		{
+			name:    "empty progress element of a block list",
+			content: "---\nglobal:\n  progress:\n    - percent\n    -\n    - foo\n",
+			want: []want{
+				{"global.progress[1]", 5, 6, "must be one of"},
+				{"global.progress[2]", 6, 7,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
+			},
+		},
+		{
+			// An unknown element that repeats gets both problems, as an auth method does.
+			name:    "progress elements",
+			content: "---\nglobal:\n  progress: [eta, foo, bar, eta, foo]\n",
+			want: []want{
+				{"global.progress[1]", 3, 19,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
+				{"global.progress[3]", 3, 29, `"eta" is not unique`},
+				{"global.progress[4]", 3, 34,
+					`"foo" must be one of bytes, elapsed, rate, bar, percent, eta`},
+				{"global.progress[4]", 3, 34, `"foo" is not unique`},
+			},
 		},
 		{
 			// The computed directories of the instance are equal after cleaning; the
@@ -245,8 +302,8 @@ func TestValidate(t *testing.T) {
 		{name: "example sections", path: "../../testdata/example.yaml", sections: ownSections},
 		{
 			name: "full sections", path: "../../testdata/full.yaml", sections: ownSections,
-			warnings: []want{{"storage.url", 30, 8, "url contains a password"}},
-			hidden:   "fake-url-password",
+			warnings: []want{{"prune.exclusive", 43, 14, "exclusive prune removes the chunks"}},
+			hidden:   "fake-",
 		},
 		{
 			name: "vault missing", path: invalid + "vault-missing.yaml", sections: ownSections,
@@ -271,7 +328,7 @@ func TestValidate(t *testing.T) {
 			want: []want{
 				{"storage.password", 4, 1, "required"},
 				{"storage.name", 5, 9, `"SSH" is reserved by duplicacy`},
-				{"storage.url", 6, 8, "must be a URL with a scheme and a host"},
+				{"storage.url", 6, 8, "must be an absolute path or a storage URL"},
 				{"storage.snapshot_id", 7, 16, `"storage main" must match ^[A-Za-z0-9_-]+$`},
 				{"storage.threads", 8, 12, "must be at least 1"},
 				{`storage.keys[""]`, 10, 9, "required"},
@@ -302,8 +359,18 @@ func TestValidate(t *testing.T) {
 			want: []want{{"check.every", 8, 10, "must not be negative"}},
 		},
 		{
+			name: "storage keys", path: invalid + "storage-keys.yaml", sections: ownSections,
+			want: []want{
+				{"storage.keys.b2_key", 8, 3, "required"},
+				{"storage.keys.ssh_password", 10, 5, "is not a key of the b2 storage"},
+				{"storage.keys.password", 11, 5, "is not a key, set storage.password instead"},
+			},
+			warnings: []want{{"prune.exclusive", 13, 14, "exclusive prune removes the chunks"}},
+			hidden:   "MEGA_DOUB",
+		},
+		{
 			name: "vault reference in storage.password",
-			content: "---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n" +
+			content: "---\nstorage:\n  url: /srv/storage\n  snapshot_id: main\n" +
 				"  password: vault:a/b/c\n",
 			sections: ownSections,
 			want:     vaultRequired,
@@ -426,60 +493,187 @@ func TestValidate(t *testing.T) {
 			content:  base + "vault:\n  address: ''\n  ca_file: ''\n",
 			sections: ownSections,
 		},
-		{name: "bucket url", content: storage("b2://bucket/prefix"), sections: ownSections},
+		{
+			name: "bucket url without keys", content: storage("b2://bucket/prefix"),
+			sections: ownSections,
+			want: []want{
+				{"storage.keys.b2_id", 2, 1, "required"},
+				{"storage.keys.b2_key", 2, 1, "required"},
+			},
+		},
 		{name: "sftp url with a user", content: storage("sftp://u@h.example.invalid/x"),
 			sections: ownSections},
 		{name: "url with a user without a password", content: storage("sftp://u@h/x"),
 			sections: ownSections},
 		{
 			name: "windows path url", content: storage(`C:\backup`), sections: ownSections,
-			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			want:   []want{{"storage.url", 3, 8, "must be an absolute path or a storage URL"}},
 			hidden: `C:\backup`,
 		},
 		{
 			name: "host and port url", content: storage("localhost:8080/x"),
 			sections: ownSections,
-			want:     []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			want:     []want{{"storage.url", 3, 8, "must be an absolute path or a storage URL"}},
 			hidden:   "localhost:8080/x",
 		},
+		{name: "absolute path url", content: storage("/abs/path"), sections: ownSections},
 		{
-			name: "absolute path url", content: storage("/abs/path"), sections: ownSections,
-			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
-			hidden: "/abs/path",
+			name: "relative path url", content: storage("abs/path"), sections: ownSections,
+			want:   []want{{"storage.url", 3, 8, "must be an absolute path or a storage URL"}},
+			hidden: "abs/path",
 		},
 		{
 			name: "opaque url", content: storage("file:opaque"), sections: ownSections,
-			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			want:   []want{{"storage.url", 3, 8, "must be an absolute path or a storage URL"}},
 			hidden: "file:opaque",
 		},
 		{
 			name: "url without a host", content: storage("sftp:///x"), sections: ownSections,
-			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			want:   []want{{"storage.url", 3, 8, "must be an absolute path or a storage URL"}},
 			hidden: "sftp:///x",
 		},
 		{
 			name: "url without a scheme", content: storage("://x"), sections: ownSections,
-			want:   []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
+			want:   []want{{"storage.url", 3, 8, "must be an absolute path or a storage URL"}},
 			hidden: "://x",
 		},
 		{
 			name: "url with a password", content: storage("sftp://u:p@h/x"),
-			sections: ownSections,
-			warnings: []want{{"storage.url", 3, 8, "url contains a password"}},
+			all: true,
+			want: []want{{"storage.url", 3, 8,
+				"must not contain a password, set storage.keys.ssh_password instead"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
 			hidden:   "u:p@h",
 		},
 		{
 			name: "url with a password without a host", content: storage("sftp://u:p@/x"),
-			sections: ownSections,
-			want:     []want{{"storage.url", 3, 8, "must be a URL with a scheme and a host"}},
-			warnings: []want{{"storage.url", 3, 8, "url contains a password"}},
+			all: true,
+			want: []want{{"storage.url", 3, 8,
+				"must not contain a password, set storage.keys.ssh_password instead"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
 			hidden:   "u:p@",
 		},
 		{
 			name: "url with an empty password", content: storage("sftp://u:@h/x"),
-			sections: ownSections,
-			warnings: []want{{"storage.url", 3, 8, "url contains a password"}},
+			all: true,
+			want: []want{{"storage.url", 3, 8,
+				"must not contain a password, set storage.keys.ssh_password instead"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
 			hidden:   "u:@h",
+		},
+		{
+			name: "webdav url with a password", content: storage("webdav://u:p@h/x"),
+			all: true,
+			want: []want{{"storage.url", 3, 8,
+				"must not contain a password, set storage.keys.webdav_password instead"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+			hidden:   "u:p@h",
+		},
+		{
+			name: "smb url with a password", content: storage("smb://u:p@h/share/x"),
+			all: true,
+			want: []want{{"storage.url", 3, 8,
+				"must not contain a password, set storage.keys.smb_password instead"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+			hidden:   "u:p@h",
+		},
+		{
+			name: "bucket url with a password", content: storage("s3://u:p@h/bucket"),
+			all:      true,
+			want:     []want{{"storage.url", 3, 8, "must not contain a password"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+			hidden:   "u:p@h",
+		},
+		{
+			name: "unknown storage type", content: storage("ftp://h.example.invalid/x"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, `"ftp" is not a storage type`}},
+			hidden:   "h.example.invalid",
+		},
+		{
+			name: "upper case storage type", content: storage("SFTP://h.example.invalid/x"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, `"SFTP" is not a storage type`}},
+			hidden:   "h.example.invalid",
+		},
+		{
+			name: "sftp url without a path", content: storage("sftp://u@h.example.invalid/"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a path"}},
+		},
+		{
+			name: "sftpc url without a path", content: storage("sftpc://h.example.invalid"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a path"}},
+		},
+		{
+			name: "azure url without a container", content: storage("azure://account"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a container"}},
+		},
+		{
+			name: "webdav url without a user", content: storage("webdav://h.example.invalid/x"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a user"}},
+		},
+		{
+			name:     "webdav-http url without a user",
+			content:  storage("webdav-http://h.example.invalid/x"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a user"}},
+		},
+		{
+			name: "smb url without a user", content: storage("smb://h.example.invalid/share/x"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a user"}},
+		},
+		{
+			name:     "smb url without a slash after the share",
+			content:  storage("smb://u@h.example.invalid/share"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a share followed by /"}},
+		},
+		{
+			name:     "smb url with an empty share",
+			content:  storage("smb://u@h.example.invalid//x"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a share followed by /"}},
+		},
+		{
+			name:     "b2-custom url without a bucket",
+			content:  storage("b2-custom://b2.example.invalid"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a bucket"}},
+		},
+		{
+			name:     "b2-custom url with an empty bucket",
+			content:  storage("b2-custom://b2.example.invalid/"),
+			sections: ownSections,
+			want:     []want{{"storage.url", 3, 8, "must have a bucket"}},
+		},
+		{
+			name: "relative flat path", content: storage("flat://srv/x"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must have an absolute path after the scheme"}},
+		},
+		{
+			name: "empty flat path", content: storage("flat://"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must have an absolute path after the scheme"}},
+		},
+		{
+			name: "relative samba path", content: storage("samba://x"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must have an absolute path after the scheme"}},
+		},
+		{
+			name: "root directory", content: storage("/"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must not be the root directory"}},
+		},
+		{
+			name: "flat root directory", content: storage("flat:///"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must not be the root directory"}},
+		},
+		{
+			name: "samba root directory", content: storage("samba:////"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must not be the root directory"}},
 		},
 		{
 			// An empty required value gives required only, without the checks of its format.
@@ -488,14 +682,14 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "empty snapshot id",
-			content: "---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: ''\n" +
+			content: "---\nstorage:\n  url: /srv/storage\n  snapshot_id: ''\n" +
 				"  password: env:PASSWORD\n",
 			sections: ownSections,
 			want:     []want{{"storage.snapshot_id", 4, 16, "required"}},
 		},
 		{
 			name:     "missing snapshot id",
-			content:  "---\nstorage:\n  url: b2://bucket/prefix\n  password: env:PASSWORD\n",
+			content:  "---\nstorage:\n  url: /srv/storage\n  password: env:PASSWORD\n",
 			sections: ownSections,
 			want:     []want{{"storage.snapshot_id", 2, 1, "required"}},
 		},
@@ -509,21 +703,22 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "empty storage name",
-			content: "---\nstorage:\n  name: ''\n  url: b2://bucket/prefix\n" +
+			content: "---\nstorage:\n  name: ''\n  url: /srv/storage\n" +
 				"  snapshot_id: main\n  password: env:PASSWORD\n",
 			sections: ownSections,
 			want:     []want{{"storage.name", 3, 9, "must not be empty"}},
 		},
 		{
 			name: "lower case ssh storage name",
-			content: "---\nstorage:\n  name: ssh\n  url: b2://bucket/prefix\n" +
+			content: "---\nstorage:\n  name: ssh\n  url: /srv/storage\n" +
 				"  snapshot_id: main\n  password: env:PASSWORD\n",
 			sections: ownSections,
 			want:     []want{{"storage.name", 3, 9, `"ssh" is reserved by duplicacy`}},
 		},
 		{
-			name:     "empty key values",
-			content:  base + "  keys:\n    b2_id: ''\n    b2_key: null\n    '': env:KEY\n",
+			name: "empty key values",
+			content: storage("b2://bucket/prefix") +
+				"  keys:\n    b2_id: ''\n    b2_key: null\n    '': env:KEY\n",
 			sections: ownSections,
 			want: []want{
 				{"storage.keys.b2_id", 7, 12, "required"},
@@ -536,6 +731,129 @@ func TestValidate(t *testing.T) {
 			content:  base + "  keys:\n    '': ''\n",
 			sections: ownSections,
 			want:     []want{{`storage.keys[""]`, 7, 9, "required"}},
+		},
+		{
+			name:     "key of another storage type",
+			content:  storageKeys("sftp://u@h.example.invalid/x", "b2_id: env:KEY"),
+			sections: ownSections,
+			want:     []want{{"storage.keys.b2_id", 7, 5, "is not a key of the sftp storage"}},
+		},
+		{
+			// A key that the type does not use gets one problem, its empty value is not one.
+			name:     "empty key of another storage type",
+			content:  storageKeys("sftp://u@h.example.invalid/x", "b2_id: ''"),
+			sections: ownSections,
+			want:     []want{{"storage.keys.b2_id", 7, 5, "is not a key of the sftp storage"}},
+		},
+		{
+			name: "key with the prefix of the storage name",
+			content: storageKeys("b2://bucket/prefix", "b2_id: env:KEY", "b2_key: env:KEY",
+				"default_b2_id: env:KEY"),
+			sections: ownSections,
+			want: []want{
+				{"storage.keys.default_b2_id", 9, 5, "is not a key of the b2 storage"},
+			},
+		},
+		{
+			name:     "password in the keys",
+			content:  storageKeys("/srv/storage", "password: env:KEY"),
+			sections: ownSections,
+			want: []want{
+				{"storage.keys.password", 7, 5, "is not a key, set storage.password instead"},
+			},
+		},
+		{
+			name:     "key of a local storage",
+			content:  storageKeys("flat:///srv/storage", "ssh_password: env:KEY"),
+			sections: ownSections,
+			want: []want{
+				{"storage.keys.ssh_password", 7, 5, "is not a key of the file storage"},
+			},
+		},
+		{
+			name:     "missing key next to a present one",
+			content:  storageKeys("b2://bucket/prefix", "b2_id: env:KEY"),
+			sections: ownSections,
+			want:     []want{{"storage.keys.b2_key", 6, 3, "required"}},
+		},
+		{
+			// The names of the keys are checked only with a valid storage.url.
+			name:     "keys of an invalid url",
+			content:  storageKeys("ftp://h.example.invalid/x", "b2_id: env:KEY", "password: ''"),
+			sections: ownSections,
+			want: []want{
+				{"storage.url", 3, 8, `"ftp" is not a storage type`},
+				{"storage.keys.password", 8, 15, "required"},
+			},
+		},
+		{
+			// The value of a key that the type does not use is not checked.
+			name: "value of a key of another storage type", all: true,
+			content:  storageKeys("sftp://u@h.example.invalid/x", "b2_id: 'env:'"),
+			want:     []want{{"storage.keys.b2_id", 7, 5, "is not a key of the sftp storage"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			name: "null of a key of another storage type", all: true,
+			content:  storageKeys("sftp://u@h.example.invalid/x", "b2_id: null"),
+			want:     []want{{"storage.keys.b2_id", 7, 5, "is not a key of the sftp storage"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			name: "value of a key without a prefix of another type", all: true,
+			content:  storageKeys("sftp://u@h.example.invalid/x", "b2_id: plain"),
+			want:     []want{{"storage.keys.b2_id", 7, 5, "is not a key of the sftp storage"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			name: "password in the keys without a prefix", all: true,
+			content: storageKeys("/srv/storage", "password: plain"),
+			want: []want{
+				{"storage.keys.password", 7, 5, "is not a key, set storage.password instead"},
+			},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			name: "password in the keys with an invalid reference", all: true,
+			content: storageKeys("/srv/storage", "password: 'env:'"),
+			want: []want{
+				{"storage.keys.password", 7, 5, "is not a key, set storage.password instead"},
+			},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			name: "empty password in the keys", all: true,
+			content: storageKeys("/srv/storage", "password: ''"),
+			want: []want{
+				{"storage.keys.password", 7, 5, "is not a key, set storage.password instead"},
+			},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			name: "null password in the keys", all: true,
+			content: storageKeys("/srv/storage", "password: null"),
+			want: []want{
+				{"storage.keys.password", 7, 5, "is not a key, set storage.password instead"},
+			},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			// The syntax of the value of a used key is still checked.
+			name: "invalid reference of a used key", all: true,
+			content:  storageKeys("b2://bucket/prefix", "b2_id: env:KEY", "b2_key: 'env:'"),
+			want:     []want{{"storage.keys.b2_key", 8, 13, "env reference must name a variable"}},
+			warnings: []want{{"targets", 1, 1, "no targets configured"}},
+		},
+		{
+			name:     "exclusive prune",
+			content:  base + "prune:\n  exclusive: true\n",
+			sections: ownSections,
+			warnings: []want{{"prune.exclusive", 7, 14, "exclusive prune removes the chunks"}},
+		},
+		{
+			name:     "not exclusive prune",
+			content:  base + "prune:\n  exclusive: false\n",
+			sections: ownSections,
 		},
 		{
 			name: "keep of the general document",
@@ -611,7 +929,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "full targets", path: "../../testdata/full.yaml", all: true,
 			warnings: []want{
-				{"storage.url", 30, 8, "url contains a password"},
+				{"prune.exclusive", 43, 14, "exclusive prune removes the chunks"},
 				{"targets[0].password", 61, 15, "value without prefix is treated as plain"},
 			},
 			hidden: "fake-",
@@ -724,7 +1042,7 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "value without prefix",
-			content: "---\nstorage:\n  url: b2://bucket/prefix\n  snapshot_id: main\n" +
+			content: "---\nstorage:\n  url: /srv/storage\n  snapshot_id: main\n" +
 				"  password: fake-bare-password\n",
 			all: true,
 			warnings: []want{
@@ -763,6 +1081,68 @@ func TestValidate(t *testing.T) {
 				{"targets[1].key_passphrase", 12, 21, "env reference must name a variable"},
 			},
 		},
+	}
+	// types are a valid URL of every storage type with the keys that it requires and the
+	// optional ones; without the keys the required ones are reported at the key keys.
+	types := []struct {
+		url      string
+		required []string
+		optional []string
+	}{
+		{"/srv/storage", nil, nil},
+		{"flat:///srv/storage", nil, nil},
+		{"samba:///srv/storage/", nil, nil},
+		{"sftp://u@h.example.invalid/x", nil,
+			[]string{"ssh_password", "ssh_key_file", "ssh_passphrase"}},
+		{"sftpc://h.example.invalid:2222/x", nil,
+			[]string{"ssh_password", "ssh_key_file", "ssh_passphrase"}},
+		{"s3://region@s3.example.invalid/bucket/x", []string{"s3_id", "s3_secret"}, nil},
+		{"s3c://s3.example.invalid/bucket", []string{"s3_id", "s3_secret"}, nil},
+		{"minio://minio.example.invalid/bucket", []string{"s3_id", "s3_secret"}, nil},
+		{"minios://minio.example.invalid/bucket", []string{"s3_id", "s3_secret"}, nil},
+		{"wasabi://region@wasabi.example.invalid/bucket",
+			[]string{"wasabi_key", "wasabi_secret"}, nil},
+		{"dropbox://x", []string{"dropbox_token"}, nil},
+		{"b2://bucket", []string{"b2_id", "b2_key"}, nil},
+		{"b2-custom://b2.example.invalid/bucket/x", []string{"b2_id", "b2_key"}, nil},
+		{"azure://account/container", []string{"azure_key"}, nil},
+		{"acd://x", []string{"acd_token"}, nil},
+		{"gcs://bucket/x", []string{"gcs_token"}, nil},
+		{"gcd://drive@/", []string{"gcd_token"}, nil},
+		{"one://x", []string{"one_token"}, []string{"one_client_id", "one_client_secret"}},
+		{"odb://drive@x", []string{"odb_token"},
+			[]string{"odb_client_id", "odb_client_secret"}},
+		{"hubic://x", []string{"hubic_token"}, nil},
+		{"swift://user@swift.example.invalid/container", []string{"swift_key"}, nil},
+		{"webdav://u@dav.example.invalid/x", []string{"webdav_password"}, nil},
+		{"webdav-http://u@dav.example.invalid:8080", []string{"webdav_password"}, nil},
+		{"fabric://fabric.example.invalid/x", []string{"fabric_token"}, nil},
+		{"storj://satellite.example.invalid/bucket/x",
+			[]string{"storj_key", "storj_passphrase"}, nil},
+		{"smb://u@smb.example.invalid/share/", []string{"smb_password"}, nil},
+	}
+	for _, typ := range types {
+		var keys []string
+		var missing []want
+		for _, name := range typ.required {
+			keys = append(keys, name+": env:KEY")
+			missing = append(missing, want{"storage.keys." + name, 6, 3, "required"})
+		}
+		for _, name := range typ.optional {
+			keys = append(keys, name+": env:KEY")
+		}
+		tests = append(tests, row{name: "keys of " + typ.url,
+			content: storageKeys(typ.url, keys...), sections: ownSections})
+		if len(missing) > 0 {
+			tests = append(tests, row{name: "no keys of " + typ.url,
+				content: storageKeys(typ.url), sections: ownSections, want: missing})
+		}
+	}
+	for _, typ := range []string{"one://x", "odb://drive@x"} {
+		name := typ[:3]
+		tests = append(tests, row{name: "client secret without a client id of " + typ,
+			content:  storageKeys(typ, name+"_token: env:KEY", name+"_client_secret: env:KEY"),
+			sections: ownSections})
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

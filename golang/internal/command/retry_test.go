@@ -35,11 +35,12 @@ func writeRetryConfig(t *testing.T, content string) string {
 
 // retryStorage is a valid storage section; without targets the configuration has the
 // one warning "no targets configured".
-const retryStorage = "storage:\n  url: 'b2://bucket'\n  snapshot_id: main\n" +
+const retryStorage = "storage:\n  url: '/srv/storage'\n  snapshot_id: main\n" +
 	"  password: 'env:MEGA_DOUB_X'\n"
 
 func Test_handle_retryRecords(t *testing.T) {
-	file := writeRetryConfig(t, "---\nglobal:\n  log_level: debug\n"+retryStorage)
+	file := writeRetryConfig(t, "---\nglobal:\n  log_level: debug\n  progress: []\n"+
+		retryStorage)
 	// tail are the records of Validate and of the command after the overrides.
 	tail := []string{
 		`level=WARN msg="configuration warning" file=` + slogValue(t, file) +
@@ -92,7 +93,8 @@ func Test_handle_retryRecords(t *testing.T) {
 }
 
 func Test_handle_retryShow(t *testing.T) {
-	file := writeRetryConfig(t, "---\nglobal:\n  retry:\n    max_retries_time: 2m\n"+
+	file := writeRetryConfig(t, "---\nglobal:\n  progress: []\n  retry:\n"+
+		"    max_retries_time: 2m\n"+
 		"    backoff_initial: 2s\n    backoff_step: 3s\n    backoff_step_attempts: 5\n"+
 		"    backoff_cap: 30s\n"+retryStorage)
 	show := func(path string) string {
