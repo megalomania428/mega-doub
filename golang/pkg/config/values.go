@@ -103,6 +103,28 @@ func (f LogFormat) Format() logging.Format {
 	return logging.Format(f)
 }
 
+// ProgressElements are the names of the elements of the progress bar of backup:
+// bytes, elapsed, rate, bar, percent and eta; Validate checks them.
+type ProgressElements []string
+
+// UnmarshalYAML accepts a list of strings only, a null element is kept in its place
+// as an empty string that Validate rejects, so a string, such as the former auto,
+// always or never, is an error that asks for a list; the error names no value.
+func (p *ProgressElements) UnmarshalYAML(node *yaml.Node) error {
+	var names []*string
+	if err := node.Load(&names); err != nil {
+		return errors.New("invalid progress: want a list of " +
+			strings.Join(progressElements, ", "))
+	}
+	*p = make(ProgressElements, len(names))
+	for i, name := range names {
+		if name != nil {
+			(*p)[i] = *name
+		}
+	}
+	return nil
+}
+
 // valueError drops the value quoted with %q from an error of a parser: values of the
 // configuration stay out of messages.
 func valueError(err error, value string) error {

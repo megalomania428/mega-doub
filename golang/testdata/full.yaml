@@ -11,7 +11,7 @@ global:
   parallel_sources: 3
   log_level: debug
   log_format: json
-  progress: never
+  progress: []
   timeout: 6h30m
   retry:
     max_retries_time: 2m

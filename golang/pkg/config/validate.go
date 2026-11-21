@@ -117,8 +117,8 @@ func quoted(value string) string {
 // instanceName is the pattern of global.instance.
 var instanceName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// progressModes are the values of global.progress.
-var progressModes = []string{"auto", "always", "never"}
+// progressElements are the elements of global.progress in the order of its default.
+var progressElements = []string{"bytes", "elapsed", "rate", "bar", "percent", "eta"}
 
 // global checks the global section.
 func (v *validator) global() {
@@ -137,12 +137,26 @@ func (v *validator) global() {
 	if g.ParallelSources < 1 {
 		v.problem("global.parallel_sources", "must be at least 1")
 	}
-	if !slices.Contains(progressModes, g.Progress) {
-		v.problem("global.progress",
-			quoted(g.Progress)+"must be one of "+strings.Join(progressModes, ", "))
-	}
+	v.progress(g.Progress)
 	if g.Timeout <= 0 {
 		v.problem("global.timeout", "must be greater than zero")
+	}
+}
+
+// progress checks the elements of global.progress: each one is known and given once,
+// an unknown repeat gets both problems.
+func (v *validator) progress(elements ProgressElements) {
+	seen := map[string]bool{}
+	for i, element := range elements {
+		item := fmt.Sprintf("global.progress[%d]", i)
+		if !slices.Contains(progressElements, element) {
+			v.problem(item,
+				quoted(element)+"must be one of "+strings.Join(progressElements, ", "))
+		}
+		if seen[element] {
+			v.problem(item, quoted(element)+"is not unique")
+		}
+		seen[element] = true
 	}
 }
 

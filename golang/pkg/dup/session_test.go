@@ -352,6 +352,8 @@ func TestOpen_required(t *testing.T) {
 		{name: "snapshot ID", opt: WithSnapshotID("")},
 		{name: "storage password", opt: WithPassword("")},
 		{name: "threads", opt: WithThreads(0)},
+		{name: "progress writer", opt: WithProgress(nil, "bar")},
+		{name: "progress element", opt: WithProgress(&bytes.Buffer{}, "speed")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

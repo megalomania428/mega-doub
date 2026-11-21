@@ -182,10 +182,9 @@ func tokenFailure(loaded *config.Loaded, err *secret.TokenError) failure {
 // effective values of its flags and prints the safe configuration; a dry run succeeds
 // and a real run reports that the command is not implemented.
 func stub(inv cli.Invocation, env cli.Env, c *config.Config) int {
-	noProgress := c.Global.Progress == "never"
-	if inv.Global.NoProgressSet {
-		noProgress = inv.Global.NoProgress
-	}
+	// The flag turns the bar off over the file, and an empty list draws no bar even
+	// with --no-progress=false.
+	noProgress := inv.Global.NoProgress || len(c.Global.Progress) == 0
 	attrs := []any{"command", inv.Command, "config", inv.Global.Config, "dry_run",
 		inv.Global.DryRun, "log_level", strings.ToLower(inv.Global.LogLevel.String()),
 		"log_format", string(inv.Global.LogFormat), "no_progress", noProgress}

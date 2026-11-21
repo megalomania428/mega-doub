@@ -8,5 +8,5 @@ global:
   instance: a/b
   parallel_targets: 0
   parallel_sources: -1
-  progress: foo
+  progress: [foo]
   timeout: 0s

@@ -85,7 +85,7 @@ var values = []place{
 	{"global.instance", 8, 13},
 	{"global.parallel_targets", 9, 21},
 	{"global.parallel_sources", 10, 21},
-	{"global.progress", 11, 13},
+	{"global.progress[0]", 11, 14},
 	{"global.timeout", 12, 12},
 }
 
@@ -110,7 +110,7 @@ func Test_handle_validate(t *testing.T) {
 		"  address: 'http://vault.example.invalid'\nstorage:\n"+
 		"  url: 'sftp://u@h.example.invalid/x'\n"+
 		"  snapshot_id: warn-main\n  password: 'env:MEGA_DOUB_WARN_STORAGE_PASSWORD'\n"+
-		"prune:\n  exclusive: true\n"),
+		"prune:\n  exclusive: true\nglobal: {progress: []}\n"),
 		0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func Test_handle_validate(t *testing.T) {
 			}
 			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			args := []string{"config", "validate", "--log-level", "debug", "--log-format",
-				"json", "-c", tt.path}
+				"json", "--no-progress", "-c", tt.path}
 			got := cli.Execute(ctx, args, stdout, stderr, cli.Build{}, handler)
 			if got != tt.want {
 				t.Errorf("cli.Execute() = %v, want %v", got, tt.want)
@@ -232,9 +232,10 @@ func Test_handle_validate_warnings(t *testing.T) {
 	for path, content := range map[string]string{
 		unprefixed: "---\nstorage:\n  url: '/srv/unprefixed'\n" +
 			"  snapshot_id: unprefixed-main\n  password: 'fake-unprefixed-password'\n" +
-			"targets:\n  - name: db01\n    transport: local\n    sources: []\n",
+			"targets:\n  - name: db01\n    transport: local\n    sources: []\n" +
+			"global: {progress: []}\n",
 		empty: "---\nstorage:\n  url: '/srv/empty'\n  snapshot_id: empty-main\n" +
-			"  password: 'env:MEGA_DOUB_EMPTY_STORAGE_PASSWORD'\n",
+			"  password: 'env:MEGA_DOUB_EMPTY_STORAGE_PASSWORD'\nglobal: {progress: []}\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)

@@ -81,8 +81,8 @@ func Test_run(t *testing.T) {
 	logSettings := filepath.Join(dir, "logging.yaml")
 	for path, content := range map[string]string{
 		invalid: "---\ntargets:\n  - name: a\n    extra: 1\nglobal:\n  timeout: 30\n",
-		logSettings: "---\nglobal:\n  log_level: warn\n  log_format: json\nstorage:\n" +
-			"  url: /srv/storage\n  snapshot_id: main\n  password: env:PASSWORD\n",
+		logSettings: "---\nglobal:\n  log_level: warn\n  log_format: json\n  progress: []\n" +
+			"storage:\n  url: /srv/storage\n  snapshot_id: main\n  password: env:PASSWORD\n",
 	} {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -115,14 +115,14 @@ func Test_run(t *testing.T) {
 	backup := func(dryRun bool) string {
 		return `level=INFO msg=command command=backup config=` + slogPath(t, examplePath) +
 			` dry_run=` + strconv.FormatBool(dryRun) +
-			` log_level=info log_format=text no_progress=false$`
+			` log_level=info log_format=text no_progress=true$`
 	}
 	// shown returns the stdout of config show on the configuration file.
 	shown := func(t *testing.T, path string) string {
 		t.Helper()
 		stdout := &bytes.Buffer{}
-		if got := run(t.Context(), []string{"config", "show", "-c", path}, stdout,
-			io.Discard); got != 0 {
+		args := []string{"config", "show", "--no-progress", "-c", path}
+		if got := run(t.Context(), args, stdout, io.Discard); got != 0 {
 			t.Fatalf("run() config show = %v, want 0", got)
 		}
 		return stdout.String()
@@ -141,7 +141,8 @@ func Test_run(t *testing.T) {
 	tests := []test{
 		{
 			name: "backup",
-			args: args{ctx: t.Context(), args: []string{"backup", "-c", example}},
+			args: args{ctx: t.Context(), args: []string{"backup", "--no-progress", "-c",
+				example}},
 			want: 3,
 			show: example,
 			wantStderr: []string{
@@ -154,7 +155,8 @@ func Test_run(t *testing.T) {
 		},
 		{
 			name: "backup dry run",
-			args: args{ctx: t.Context(), args: []string{"backup", "--dry-run", "-c", example}},
+			args: args{ctx: t.Context(), args: []string{"backup", "--dry-run", "--no-progress",
+				"-c", example}},
 			want: 0,
 			show: example,
 			wantStderr: []string{
@@ -167,7 +169,8 @@ func Test_run(t *testing.T) {
 		},
 		{
 			name: "valid configuration",
-			args: args{ctx: t.Context(), args: []string{"config", "validate", "-c", example}},
+			args: args{ctx: t.Context(), args: []string{"config", "validate", "--no-progress",
+				"-c", example}},
 			want: 0,
 			wantStderr: []string{
 				exampleWarnings[0],
@@ -249,7 +252,7 @@ func Test_run(t *testing.T) {
 					` line=1 column=1 path=targets warning="no targets configured"$`,
 				`level=INFO msg="secrets resolved" count=1$`,
 				`level=INFO msg=command command=backup config=` + slogPath(t, logSettings) +
-					` dry_run=false log_level=info log_format=text no_progress=false$`,
+					` dry_run=false log_level=info log_format=text no_progress=true$`,
 				`level=ERROR msg="command is not implemented yet" command=backup$`,
 			},
 		},
