@@ -140,20 +140,6 @@ func Test_run(t *testing.T) {
 	}
 	tests := []test{
 		{
-			name: "backup",
-			args: args{ctx: t.Context(), args: []string{"backup", "--no-progress", "-c",
-				example}},
-			want: 3,
-			show: example,
-			wantStderr: []string{
-				exampleWarnings[0],
-				exampleWarnings[1],
-				`level=INFO msg="secrets resolved" count=4$`,
-				backup(false),
-				`level=ERROR msg="command is not implemented yet" command=backup$`,
-			},
-		},
-		{
 			name: "backup dry run",
 			args: args{ctx: t.Context(), args: []string{"backup", "--dry-run", "--no-progress",
 				"-c", example}},
@@ -230,30 +216,30 @@ func Test_run(t *testing.T) {
 		},
 		{
 			name: "log settings from the configuration",
-			args: args{ctx: t.Context(), args: []string{"backup", "-c", logSettings}},
-			want: 3,
+			args: args{ctx: t.Context(), args: []string{"backup", "--dry-run", "-c",
+				logSettings}},
+			want: 0,
 			json: true,
 			show: logSettings,
 			wantStderr: []string{
 				`"level":"WARN","msg":"configuration warning","file":` +
 					slogJSONPath(t, logSettings) + `,"line":1,"column":1,"path":"targets",` +
 					`"warning":"no targets configured"\}$`,
-				`"level":"ERROR","msg":"command is not implemented yet","command":"backup"\}$`,
 			},
 		},
 		{
 			name: "log flags over the configuration",
-			args: args{ctx: t.Context(), args: []string{"backup", "-c", logSettings,
-				"--log-level", "info", "--log-format", "text"}},
-			want: 3,
+			args: args{ctx: t.Context(), args: []string{"backup", "--dry-run", "-c",
+				logSettings, "--log-level", "info", "--log-format", "text"}},
+			want: 0,
 			show: logSettings,
 			wantStderr: []string{
 				`level=WARN msg="configuration warning" file=` + slogPath(t, logSettings) +
 					` line=1 column=1 path=targets warning="no targets configured"$`,
 				`level=INFO msg="secrets resolved" count=1$`,
 				`level=INFO msg=command command=backup config=` + slogPath(t, logSettings) +
-					` dry_run=false log_level=info log_format=text no_progress=true$`,
-				`level=ERROR msg="command is not implemented yet" command=backup$`,
+					` dry_run=true log_level=info log_format=text no_progress=true$`,
+				`level=INFO msg="dry run, nothing to do" command=backup$`,
 			},
 		},
 		{

@@ -14,7 +14,6 @@ import (
 
 	"github.com/megalomania428/mega-doub/internal/cli"
 	"github.com/megalomania428/mega-doub/pkg/config"
-	"github.com/megalomania428/mega-doub/pkg/dup"
 	"github.com/megalomania428/mega-doub/pkg/logging"
 	"github.com/megalomania428/mega-doub/pkg/model"
 	"github.com/megalomania428/mega-doub/pkg/secret"
@@ -40,10 +39,12 @@ func New(deps Deps) cli.Handler {
 
 // handle loads and validates the configuration, configures the logger by it, resolves
 // the secrets and runs the command. config show does not resolve the secrets, config
-// validate does it only with --resolve. init without --dry-run writes the record command
-// and initializes the storage with storageRun, the other commands and a dry run are
-// stubs. global.timeout limits init, backup and prune after the validation, the secrets
-// and the command included; its expiry is the record timed out and the exit code 4.
+// validate does it only with --resolve. prune without prune.keep is a problem of the
+// configuration among the problems of Validate, also with --dry-run. init, backup and
+// prune without --dry-run write the record command and run with the storage by
+// storageRun.runCommand, the other commands and a dry run are stubs. global.timeout
+// limits init, backup and prune after the validation, the secrets and the command
+// included; its expiry is the record timed out and the exit code 4.
 // Interruption is reported by cli.Execute, the handler keeps its code.
 func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int {
 	loaded, err := config.Load(inv.Global.Config)
@@ -69,6 +70,12 @@ func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int
 	// The records carry the absolute path of the configuration.
 	inv.Global.Config = loaded.Path
 	result := config.Validate(loaded)
+	// The policies are optional while prune.enabled is off, the command prune needs them;
+	// with prune.enabled Validate reports an empty prune.keep itself.
+	c := loaded.Config
+	if inv.Command == "prune" && !c.Prune.Enabled && len(c.Prune.Keep) == 0 {
+		result.Add(loaded.Problem("prune.keep", "required by the command prune"))
+	}
 	logResult(env.Logger, result)
 	if len(result.Problems) > 0 {
 		return model.ExitConfig
@@ -91,19 +98,17 @@ func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int
 			env.Logger.Info("configuration is valid", "config", inv.Global.Config)
 			return model.ExitOK
 		}
-		if inv.Command == "init" && !inv.Global.DryRun {
+		if storageCommand(inv.Command) && !inv.Global.DryRun {
 			env.Logger.Info("command", commandAttrs(inv, loaded.Config)...)
-			run := storageRun{
-				logger: env.Logger, loaded: loaded, resolver: r, operation: operationInit,
-				options: []dup.SessionOption{
-					dup.WithInit(), dup.WithThreads(loaded.Config.Storage.Threads),
-				},
+			run := storageRun{logger: env.Logger, loaded: loaded, resolver: r}
+			if !noProgress(inv, loaded.Config) {
+				run.progress = env.Stderr
 			}
-			return run.run(workCtx, run.initialized)
+			return run.runCommand(workCtx, inv.Command)
 		}
 		return stub(inv, env, loaded.Config)
 	}
-	if inv.Command == "init" || inv.Command == "backup" || inv.Command == "prune" {
+	if storageCommand(inv.Command) {
 		limit := timeLimit{timeout: time.Duration(loaded.Config.Global.Timeout),
 			logger: env.Logger}
 		return limit.run(ctx, work)
@@ -221,12 +226,9 @@ func stub(inv cli.Invocation, env cli.Env, c *config.Config) int {
 // commandAttrs returns the fields of the record command: the command, the configuration
 // and the effective values of the flags of the command.
 func commandAttrs(inv cli.Invocation, c *config.Config) []any {
-	// The flag turns the bar off over the file, and an empty list draws no bar even
-	// with --no-progress=false.
-	noProgress := inv.Global.NoProgress || len(c.Global.Progress) == 0
 	attrs := []any{"command", inv.Command, "config", inv.Global.Config, "dry_run",
 		inv.Global.DryRun, "log_level", strings.ToLower(inv.Global.LogLevel.String()),
-		"log_format", string(inv.Global.LogFormat), "no_progress", noProgress}
+		"log_format", string(inv.Global.LogFormat), "no_progress", noProgress(inv, c)}
 	switch inv.Command {
 	case "prune":
 		attrs = append(attrs, "enabled", c.Prune.Enabled)
@@ -249,6 +251,18 @@ func commandAttrs(inv cli.Invocation, c *config.Config) []any {
 		attrs = append(attrs, "revision", inv.List.Revision)
 	}
 	return attrs
+}
+
+// storageCommand tells whether the command name runs with the storage: init, backup
+// and prune.
+func storageCommand(name string) bool {
+	return name == "init" || name == "backup" || name == "prune"
+}
+
+// noProgress tells whether the run draws no bar: the flag turns the bar off over the
+// file, and an empty list draws no bar even with --no-progress=false.
+func noProgress(inv cli.Invocation, c *config.Config) bool {
+	return inv.Global.NoProgress || len(c.Global.Progress) == 0
 }
 
 // show writes the safe form of the configuration to stdout, a failure is logged and

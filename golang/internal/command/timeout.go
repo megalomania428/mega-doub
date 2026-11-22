@@ -24,6 +24,10 @@ type timeLimit struct {
 // the expiry of the deadline of the parent context.
 var errTimeout = errors.New("global.timeout expired")
 
+// withTimeoutCause makes the context of a run that expires after the timeout; a test
+// replaces it to expire the context at a chosen moment of the run.
+var withTimeoutCause = context.WithTimeoutCause
+
 // run runs work with a context of ctx that expires after the timeout. When that context
 // has expired by the timeout before ctx is done, run logs the record timed out with the
 // field timeout, the effective value such as 12h0m0s, and returns the exit code 4
@@ -31,7 +35,7 @@ var errTimeout = errors.New("global.timeout expired")
 // canceled ctx with the record interrupted, so a cancellation after the expiry adds that
 // record.
 func (l timeLimit) run(ctx context.Context, work func(context.Context) int) int {
-	workCtx, cancel := context.WithTimeoutCause(ctx, l.timeout, errTimeout)
+	workCtx, cancel := withTimeoutCause(ctx, l.timeout, errTimeout)
 	defer cancel()
 	code := work(workCtx)
 	// The context keeps its first cause, so a later cancellation of ctx does not hide it,

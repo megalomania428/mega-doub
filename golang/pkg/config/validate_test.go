@@ -1144,6 +1144,59 @@ func TestValidate(t *testing.T) {
 			content:  storageKeys(typ, name+"_token: env:KEY", name+"_client_secret: env:KEY"),
 			sections: ownSections})
 	}
+	// dirs returns a document with the storage URL at 3:8, the copy directory copyDir and
+	// the state directory /srv/state.
+	dirs := func(url, copyDir string) string {
+		return storage(url) + "global:\n  copy_dir: " + copyDir + "\n  state_dir: /srv/state\n"
+	}
+	for _, form := range []struct{ name, prefix string }{
+		{"path", ""}, {"flat", "flat://"}, {"samba", "samba://"},
+	} {
+		url := func(path string) string { return form.prefix + path }
+		tests = append(tests,
+			row{name: form.name + " storage equal to the copy directory",
+				content: dirs(url("/srv/copy/"), "/srv/copy"), sections: ownSections,
+				want: []want{{"storage.url", 3, 8, "must differ from global.copy_dir"}}},
+			row{name: form.name + " storage inside the copy directory after cleaning",
+				content:  dirs(url("/srv/other/../copy/storage"), "/srv/copy"),
+				sections: ownSections,
+				want:     []want{{"storage.url", 3, 8, "must not be inside global.copy_dir"}}},
+			row{name: form.name + " storage holding the copy directory",
+				content: dirs(url("/srv/a"), "/srv/a/copy"), sections: ownSections,
+				want: []want{{"storage.url", 3, 8, "must not hold global.copy_dir"}}},
+			row{name: form.name + " storage equal to the state directory",
+				content: dirs(url("/srv/state"), "/srv/copy"), sections: ownSections,
+				want: []want{{"storage.url", 3, 8, "must differ from global.state_dir"}}},
+			row{name: form.name + " storage inside the state directory",
+				content: dirs(url("/srv/state/storage"), "/srv/copy"), sections: ownSections,
+				want: []want{{"storage.url", 3, 8, "must not be inside global.state_dir"}}},
+			row{name: form.name + " storage holding both directories",
+				content: dirs(url("/srv"), "/srv/copy"), sections: ownSections,
+				want: []want{{"storage.url", 3, 8, "must not hold global.copy_dir"},
+					{"storage.url", 3, 8, "must not hold global.state_dir"}}},
+			row{name: form.name + " storage next to the directories",
+				content: dirs(url("/srv/copy2"), "/srv/copy"), sections: ownSections},
+		)
+	}
+	tests = append(tests,
+		row{name: "storage in another letter case",
+			content: dirs("/SRV/COPY", "/srv/copy"), sections: ownSections},
+		row{name: "storage inside a relative copy directory",
+			content: dirs("/srv/copy/storage", "srv/copy"), sections: ownSections},
+		row{name: "storage inside the state directory with a relative copy directory",
+			content: dirs("/srv/state/storage", "srv/copy"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must not be inside global.state_dir"}}},
+		row{name: "network storage inside the copy directory",
+			content:  dirs("sftp://u@h.example.invalid/srv/copy", "/srv/copy"),
+			sections: ownSections},
+		row{name: "relative local storage inside the copy directory",
+			content: dirs("flat://srv/copy", "/srv/copy"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must have an absolute path after the scheme"}}},
+		row{name: "storage holding the default directories",
+			content: storage("/var/lib/mega-doub"), sections: ownSections,
+			want: []want{{"storage.url", 3, 8, "must not hold global.copy_dir"},
+				{"storage.url", 3, 8, "must not hold global.state_dir"}}},
+	)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := tt.path
@@ -1213,5 +1266,87 @@ func checkErr(t *testing.T, result config.Result) {
 	if !errors.As(err, &cfgErr) || len(cfgErr.Problems) != len(result.Problems) {
 		t.Errorf("Result.Err() = %v, want *config.Error with %d problems", err,
 			len(result.Problems))
+	}
+}
+
+func TestLoaded_Problem(t *testing.T) {
+	type args struct {
+		path string
+		msg  string
+	}
+	keep := args{path: "prune.keep", msg: "required by the command prune"}
+	tests := []struct {
+		name string
+		// content is the configuration file.
+		content string
+		args    args
+		// wantLine and wantColumn are the position of the problem.
+		wantLine, wantColumn int
+	}{
+		{name: "value", content: "---\nprune:\n  keep: []\n", args: keep, wantLine: 3,
+			wantColumn: 9},
+		{name: "explicit null", content: "---\nprune:\n  keep: null\n", args: keep,
+			wantLine: 3, wantColumn: 9},
+		{name: "missing key", content: "---\nprune:\n  threads: 2\n", args: keep,
+			wantLine: 2, wantColumn: 1},
+		{name: "missing section", content: "---\nglobal: {progress: []}\n", args: keep,
+			wantLine: 1, wantColumn: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "main.yaml")
+			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			l, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			want := config.Problem{File: l.Path, Line: tt.wantLine, Column: tt.wantColumn,
+				Path: tt.args.path, Message: tt.args.msg}
+			if got := l.Problem(tt.args.path, tt.args.msg); got != want {
+				t.Errorf("Loaded.Problem() = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestResult_Add(t *testing.T) {
+	// at returns a problem of the field path at the line and the column.
+	at := func(path string, line, column int) config.Problem {
+		return config.Problem{File: "/srv/main.yaml", Line: line, Column: column, Path: path,
+			Message: "invalid"}
+	}
+	type args struct {
+		p config.Problem
+	}
+	tests := []struct {
+		name     string
+		problems []config.Problem
+		args     args
+		want     []config.Problem
+	}{
+		{name: "no problems", args: args{p: at("prune.keep", 1, 1)},
+			want: []config.Problem{at("prune.keep", 1, 1)}},
+		{name: "before the problems", problems: []config.Problem{at("global.a", 3, 21)},
+			args: args{p: at("prune.keep", 1, 1)},
+			want: []config.Problem{at("prune.keep", 1, 1), at("global.a", 3, 21)}},
+		{name: "after the problems", problems: []config.Problem{at("global.a", 3, 21)},
+			args: args{p: at("prune.keep", 9, 1)},
+			want: []config.Problem{at("global.a", 3, 21), at("prune.keep", 9, 1)}},
+		{name: "at the position of a problem",
+			problems: []config.Problem{at("prune.threads", 9, 1), at("targets", 12, 1)},
+			args:     args{p: at("prune.keep", 9, 1)},
+			want: []config.Problem{at("prune.threads", 9, 1), at("prune.keep", 9, 1),
+				at("targets", 12, 1)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &config.Result{Problems: tt.problems}
+			r.Add(tt.args.p)
+			if !slices.Equal(r.Problems, tt.want) {
+				t.Errorf("Result.Add() problems = %v, want %v", r.Problems, tt.want)
+			}
+		})
 	}
 }

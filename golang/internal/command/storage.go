@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 
 	"github.com/megalomania428/mega-doub/pkg/config"
@@ -33,18 +34,26 @@ const operationInit = "init"
 // openSession opens the session of a run, a variable of the package for its tests.
 var openSession = dup.Open
 
+// withProgress is the option of the bar of backup, a variable of the package for its
+// tests.
+var withProgress = dup.WithProgress
+
 // storageRun is a run of a command with the storage of the configuration: it takes the
-// run lock of global.state_dir, opens the session of duplicacy and runs the work of the
-// command with the session. resolver is the resolver of the run with the secrets of the
-// configuration in its cache, operation names the opening of the session in the record
-// storage operation failed, and options follow the options of the configuration, such as
-// dup.WithInit.
+// run lock of global.state_dir, prepares the run, opens the session of duplicacy and
+// runs the work of the command with the session. resolver is the resolver of the run
+// with the secrets of the configuration in its cache, operation names the opening of the
+// session in the record storage operation failed, options follow the options of the
+// configuration, such as dup.WithInit, progress is the writer of the bar of backup, nil
+// without a bar, and prepare is the step of the command between the lock and the
+// opening, nil without one, which returns the exit code: 0 lets the run go on.
 type storageRun struct {
 	logger    *slog.Logger
 	loaded    *config.Loaded
 	resolver  secret.Resolver
 	operation string
 	options   []dup.SessionOption
+	progress  io.Writer
+	prepare   func(context.Context) int
 }
 
 // stepFailure is a failed step of a run with the storage: the operation of the record,
@@ -61,10 +70,12 @@ type stepFailure struct {
 // then the lock is taken before the session opens: a lock held by another run is the
 // record another run is in progress with the fields lock and pid, any other failure to
 // take it is the record lock failed with the fields lock and error, both with the exit
-// code 3. A failure to open the session is reported by failed with the operation of the
-// run. The session is closed and then the lock is released on every return after the
-// lock is taken; a failure to release it is the warning lock release failed with the
-// fields lock and error and keeps the code.
+// code 3. Then prepare runs when it is set, and its code other than 0 ends the run. A
+// storage without a config, dup.ErrNotInitialized in the error of the opening, is the
+// record of notInitialized with the exit code 3; another failure to open the session is
+// reported by failed with the operation of the run. The session is closed and then the
+// lock is released on every return after the lock is taken; a failure to release it is
+// the warning lock release failed with the fields lock and error and keeps the code.
 func (sr storageRun) run(
 	ctx context.Context, work func(context.Context, *dup.Session) int,
 ) int {
@@ -83,8 +94,16 @@ func (sr storageRun) run(
 		return model.ExitStorage
 	}
 	defer sr.release(l)
+	if sr.prepare != nil {
+		if code := sr.prepare(ctx); code != model.ExitOK {
+			return code
+		}
+	}
 	session, err := openSession(ctx, opts...)
 	if err != nil {
+		if errors.Is(err, dup.ErrNotInitialized) {
+			return sr.notInitialized()
+		}
 		return sr.failed(ctx, stepFailure{operation: sr.operation, err: err})
 	}
 	defer session.Close()

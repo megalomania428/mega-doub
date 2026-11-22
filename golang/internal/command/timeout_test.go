@@ -111,8 +111,9 @@ func Test_timeLimit_run(t *testing.T) {
 func Test_handle_timeout(t *testing.T) {
 	setRetryEnv(t, nil)
 	file := filepath.Join(t.TempDir(), "timeout.yaml")
+	// The command prune needs prune.keep, which resolveConfig lacks.
 	content := strings.Replace(resolveConfig, "global: {progress: []}",
-		"global: {progress: [], timeout: 50ms}", 1)
+		"global: {progress: [], timeout: 50ms}\nprune: {keep: ['1:7']}", 1)
 	if content == resolveConfig {
 		t.Fatal("resolveConfig has no line global: {progress: []}")
 	}

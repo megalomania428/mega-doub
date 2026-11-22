@@ -97,15 +97,25 @@ jobs:
             printf '%s\n' '---' 'global:' "  copy_dir: '${init_dir}/copy'" \
               "  state_dir: '${init_dir}/state'" '  progress: []' 'storage:' \
               "  url: '${init_dir}/storage'" '  snapshot_id: smoke' \
-              "  password: 'env:MEGA_DOUB_SMOKE_PASSWORD'" >"${init_dir}/init.yaml"
+              "  password: 'env:MEGA_DOUB_SMOKE_PASSWORD'" 'prune:' \
+              "  keep: ['1:7']" >"${init_dir}/init.yaml"
+            mkdir -p "${init_dir}/copy"
+            printf 'smoke\n' >"${init_dir}/copy/data.txt"
+            expect 3 backup -c "${init_dir}/init.yaml"
+            if [[ -e "${init_dir}/storage/config" ]]; then
+              printf 'mega-doub backup: config in %s before init\n' "${init_dir}/storage"
+              exit 1
+            fi
             expect 0 init -c "${init_dir}/init.yaml"
             expect 0 init -c "${init_dir}/init.yaml"
             if [[ ! -f "${init_dir}/storage/config" ]]; then
               printf 'mega-doub init: no config in %s\n' "${init_dir}/storage"
               exit 1
             fi
+            expect 0 backup -c "${init_dir}/init.yaml"
+            expect 0 backup -c "${init_dir}/init.yaml"
+            expect 0 prune -c "${init_dir}/init.yaml"
           ) || exit 1
-          expect 3 backup -c testdata/example.yaml
   linters:
     name: linters
     timeout-minutes: 11

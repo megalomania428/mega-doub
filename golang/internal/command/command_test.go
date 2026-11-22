@@ -1,4 +1,4 @@
-// cspell:ignore doub
+// cspell:ignore doub nokeep noprune
 
 package command
 
@@ -172,6 +172,18 @@ func Test_handle_commands(t *testing.T) {
 		"debug.yaml":   commandConfig("  log_level: debug\n  progress: []\n", false),
 		"load.yaml":    "---\nglobal:\n  timeout: 30\n",
 		"problem.yaml": commandConfig("  parallel_targets: 0\n  progress: []\n", false),
+		// nokeep.yaml has the key prune at 8:1 and no prune.keep, nokeep-problem.yaml has
+		// the key prune at 9:1, no prune.keep and the problem of problem.yaml at 3:21, and
+		// noprune-problem.yaml has the problem of problem.yaml and no section prune, so the
+		// problem of prune.keep is at 1:1.
+		"nokeep.yaml": strings.Replace(commandConfig("  progress: []\n", false),
+			"  keep: ['1:7']\n", "", 1),
+		"nokeep-problem.yaml": strings.Replace(
+			commandConfig("  parallel_targets: 0\n  progress: []\n", false),
+			"  keep: ['1:7']\n", "", 1),
+		"noprune-problem.yaml": strings.Replace(
+			commandConfig("  parallel_targets: 0\n  progress: []\n", false),
+			"prune:\n  enabled: false\n  keep: ['1:7']\n", "", 1),
 	})
 	path := func(file string) string {
 		abs, err := filepath.Abs(file)
@@ -197,6 +209,12 @@ func Test_handle_commands(t *testing.T) {
 		}
 		return `level=ERROR msg="command is not implemented yet" command=` + name
 	}
+	// keepProblem is the pattern of the record of prune without prune.keep on the file at
+	// the line of the key prune, 1 without the section prune.
+	keepProblem := func(file string, line int) string {
+		return fmt.Sprintf(`level=ERROR msg="invalid configuration" file=%s line=%d `+
+			`column=1 path=prune\.keep error="required by the command prune"`, path(file), line)
+	}
 	tests := []struct {
 		name string
 		file string
@@ -212,22 +230,33 @@ func Test_handle_commands(t *testing.T) {
 			want: 0, show: true,
 			wantRecords: []string{resolvedOne, command("backup", "auto.yaml", dryRun),
 				stopped("backup", true)}},
-		{name: "backup", file: "auto.yaml", args: []string{"backup"}, want: 3, show: true,
-			wantRecords: []string{resolvedOne, command("backup", "auto.yaml", run),
-				stopped("backup", false)}},
 		{name: "prune dry run", file: "auto.yaml", args: []string{"prune", "--dry-run"},
 			want: 0, show: true,
 			wantRecords: []string{resolvedOne,
 				command("prune", "auto.yaml", dryRun+` enabled=false`),
 				stopped("prune", true)}},
-		{name: "prune not enabled", file: "auto.yaml", args: []string{"prune"}, want: 3,
-			show: true,
-			wantRecords: []string{resolvedOne, command("prune", "auto.yaml", run+` enabled=false`),
-				stopped("prune", false)}},
-		{name: "prune enabled", file: "never.yaml",
-			args: []string{"prune", "--no-progress=false"}, want: 3, show: true,
-			wantRecords: []string{resolvedOne, command("prune", "never.yaml", run+` enabled=true`),
-				stopped("prune", false)}},
+		{name: "prune enabled dry run", file: "never.yaml",
+			args: []string{"prune", "--dry-run", "--no-progress=false"}, want: 0, show: true,
+			wantRecords: []string{resolvedOne,
+				command("prune", "never.yaml", dryRun+` enabled=true`),
+				stopped("prune", true)}},
+		{name: "prune without keep", file: "nokeep.yaml", args: []string{"prune"}, want: 2,
+			wantRecords: []string{keepProblem("nokeep.yaml", 8)}},
+		{name: "prune dry run without keep", file: "nokeep.yaml",
+			args: []string{"prune", "--dry-run"}, want: 2,
+			wantRecords: []string{keepProblem("nokeep.yaml", 8)}},
+		{name: "prune without keep in an invalid file", file: "nokeep-problem.yaml",
+			args: []string{"prune"}, want: 2,
+			wantRecords: []string{`level=ERROR msg="invalid configuration" file=` +
+				path("nokeep-problem.yaml") + ` line=3 column=21 ` +
+				`path=global\.parallel_targets error=.+`,
+				keepProblem("nokeep-problem.yaml", 9)}},
+		{name: "prune without the section prune in an invalid file",
+			file: "noprune-problem.yaml", args: []string{"prune", "--dry-run"}, want: 2,
+			wantRecords: []string{keepProblem("noprune-problem.yaml", 1),
+				`level=ERROR msg="invalid configuration" file=` +
+					path("noprune-problem.yaml") + ` line=3 column=21 ` +
+					`path=global\.parallel_targets error=.+`}},
 		{name: "check from the configuration", file: "auto.yaml", args: []string{"check"},
 			want: 3, show: true,
 			wantRecords: []string{resolvedOne, command("check", "auto.yaml",
@@ -364,8 +393,7 @@ func Test_handle_show(t *testing.T) {
 	}{
 		{name: "config show", args: []string{"config", "show"}, want: 0},
 		{name: "backup dry run", args: []string{"backup", "--dry-run"}, want: 0},
-		{name: "backup", args: []string{"backup"}, want: 3},
-		{name: "prune", args: []string{"prune"}, want: 3},
+		{name: "prune dry run", args: []string{"prune", "--dry-run"}, want: 0},
 		{name: "check", args: []string{"check"}, want: 3},
 		{name: "verify", args: []string{"verify"}, want: 3},
 		{name: "list", args: []string{"list"}, want: 3},
@@ -403,9 +431,6 @@ func Test_handle_output(t *testing.T) {
 	}{
 		{name: "config show", args: []string{"config", "show"},
 			wantRecords: []string{failed}},
-		{name: "backup", args: []string{"backup"},
-			wantRecords: []string{resolvedOne,
-				`level=INFO msg=command command=backup .+`, failed}},
 		{name: "backup dry run", args: []string{"backup", "--dry-run"},
 			wantRecords: []string{resolvedOne,
 				`level=INFO msg=command command=backup .+`, failed}},
@@ -447,7 +472,7 @@ func Test_handle_canary(t *testing.T) {
 		vault:    vaultConfig,
 		unparsed: "---\nstorage:\n  url: 'sftp://u:fake-canary-url@h:bad/'\n" + valid,
 	})
-	commands := [][]string{{"backup"}, {"backup", "--dry-run"}, {"prune"}, {"check"},
+	commands := [][]string{{"backup", "--dry-run"}, {"prune", "--dry-run"}, {"check"},
 		{"verify"}, {"list"}, {"config", "validate"}, {"config", "show"}}
 	tests := []struct {
 		name string

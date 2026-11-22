@@ -33,13 +33,15 @@ const (
 	initSSHPassword   = "fake-init-ssh-password"
 )
 
-// initSetup is the setup of a test of init: the storage, the copy and the state
+// initSetup is the setup of a test with the storage: the storage, the copy and the state
 // directories are siblings in one temporary directory, the configuration is written next
-// to them. url is storage.url, the storage directory by default; global holds the extra
-// lines of global and keys the lines of storage.keys, none when empty.
+// to them. url is storage.url, the storage directory by default; progress is the value
+// of global.progress, [] by default; global holds the extra lines of global, keys the
+// lines of storage.keys and prune the section prune, none when empty.
 type initSetup struct {
 	dir, storage, copyDir, stateDir string
-	url, global, keys               string
+	url, progress, global, keys     string
+	prune                           string
 }
 
 // newInitSetup returns the setup of a test of init in a new temporary directory with the
@@ -57,6 +59,7 @@ func newInitSetup(t *testing.T) *initSetup {
 		stateDir: filepath.Join(dir, "state"),
 	}
 	s.url = s.storage
+	s.progress = "[]"
 	return s
 }
 
@@ -67,9 +70,9 @@ func (s *initSetup) write(t *testing.T) string {
 	content := "---\nglobal:\n  instance: init\n" +
 		"  copy_dir: " + strconv.Quote(s.copyDir) + "\n" +
 		"  state_dir: " + strconv.Quote(s.stateDir) + "\n" +
-		"  progress: []\n" + s.global +
+		"  progress: " + s.progress + "\n" + s.global +
 		"storage:\n  url: " + strconv.Quote(s.url) + "\n  snapshot_id: init-main\n" +
-		"  password: 'env:MEGA_DOUB_INIT_PASSWORD'\n" + s.keys +
+		"  password: 'env:MEGA_DOUB_INIT_PASSWORD'\n" + s.keys + s.prune +
 		"targets:\n  - name: local\n    transport: local\n" +
 		"    sources: [{type: test, id: data, path: /srv/data}]\n"
 	writeFiles(t, map[string]string{path: content})
@@ -579,6 +582,16 @@ func Test_storageRun_run(t *testing.T) {
 			},
 			args:     args{done: true},
 			want:     model.ExitInterrupted,
+			wantLock: true,
+		},
+		{
+			name: "storage without a config",
+			fields: fields{
+				openErr: fmt.Errorf("storage init default: %w", dup.ErrNotInitialized),
+			},
+			want: model.ExitStorage,
+			wantRecords: []string{`level=ERROR msg="storage is not initialized" ` +
+				`instance="" storage=\S* hint="run 'mega-doub init' first"`},
 			wantLock: true,
 		},
 	}

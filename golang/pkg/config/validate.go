@@ -32,6 +32,13 @@ func (r Result) Err() error {
 	return &Error{Problems: r.Problems}
 }
 
+// Add adds the problem p of a rule outside Validate, such as a rule of a command, and
+// keeps the problems sorted by position as Validate does.
+func (r *Result) Add(p Problem) {
+	r.Problems = append(r.Problems, p)
+	sortProblems(r.Problems)
+}
+
 // Validate checks the loaded configuration by the rules of its sections in the order
 // of the schema. It does not touch the file system.
 func Validate(l *Loaded) Result {
@@ -93,6 +100,15 @@ func (v *validator) position(path string) (line, column int) {
 		return line, column
 	}
 	return 1, 1
+}
+
+// Problem returns the problem msg of the field at path where Validate reports a problem
+// of the field: at its value when the key is present, an explicit null included,
+// otherwise at the key of the nearest present ancestor or at the start of the document.
+// A command reports a rule of its own on the configuration with it.
+func (l *Loaded) Problem(path, msg string) Problem {
+	line, column := (&validator{l: l}).position(path)
+	return Problem{File: l.Path, Line: line, Column: column, Path: path, Message: msg}
 }
 
 // required reports an empty value of a required field, an explicit null included, as
@@ -331,6 +347,9 @@ func (v *validator) storage() {
 			v.problem("storage.url", msg)
 		}
 	}
+	if typ == fileStorage {
+		v.storageDirs(s.URL)
+	}
 	if v.required("storage.snapshot_id", s.SnapshotID) &&
 		!snapshotID.MatchString(s.SnapshotID) {
 		v.problem("storage.snapshot_id",
@@ -341,6 +360,31 @@ func (v *validator) storage() {
 		v.problem("storage.threads", "must be at least 1")
 	}
 	v.storageKeys(typ)
+}
+
+// storageDirs reports a local storage at the path of the valid storage.url raw that is
+// equal to an absolute global.copy_dir or global.state_dir, is inside it or holds it,
+// with one problem at storage.url per directory, global.copy_dir first: a backup would
+// put the storage or the state of the run into the archive. The paths are compared as
+// in directories; a relative directory is reported by global and is skipped here.
+func (v *validator) storageDirs(raw string) {
+	path, _ := localPath(raw)
+	g := v.l.Config.Global
+	for _, dir := range []struct{ key, path string }{
+		{"global.copy_dir", g.CopyDir}, {"global.state_dir", g.StateDir},
+	} {
+		if !filepath.IsAbs(dir.path) {
+			continue
+		}
+		switch {
+		case filepath.Clean(path) == filepath.Clean(dir.path):
+			v.problem("storage.url", "must differ from "+dir.key)
+		case within(dir.path, path):
+			v.problem("storage.url", "must not be inside "+dir.key)
+		case within(path, dir.path):
+			v.problem("storage.url", "must not hold "+dir.key)
+		}
+	}
 }
 
 // retention is the pattern of an element n:m of prune.keep.

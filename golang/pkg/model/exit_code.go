@@ -9,7 +9,8 @@ const (
 	ExitSource = 1
 	// ExitConfig reports an invocation, configuration, or secret resolution failure.
 	ExitConfig = 2
-	// ExitStorage reports a storage failure or a command that is not implemented yet.
+	// ExitStorage reports a failure of the storage, such as a storage that is not
+	// initialized, or of the run lock, or a command that is not implemented yet.
 	ExitStorage = 3
 	// ExitInterrupted reports an interruption by a signal or a timeout.
 	ExitInterrupted = 4

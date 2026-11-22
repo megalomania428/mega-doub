@@ -153,7 +153,7 @@ func Test_handle_resolveErrors(t *testing.T) {
 		"  url: 'b2://resolve-bucket/prefix'\n  snapshot_id: resolve-main\n" +
 		"  password: 'env:MEGA_DOUB_RESOLVE_A'\n  keys:\n" +
 		"    b2_key: &unset 'env:MEGA_DOUB_RESOLVE_B'\n    b2_id: *unset\n" +
-		"global: {progress: []}\n"})
+		"global: {progress: []}\nprune: {keep: ['1:7']}\n"})
 	abs, err := filepath.Abs(file)
 	if err != nil {
 		t.Fatal(err)
@@ -262,9 +262,6 @@ func Test_handle_resolveCount(t *testing.T) {
 		{name: "backup dry run", args: []string{"backup", "--dry-run"},
 			wantRecords: []string{resolved, `level=INFO msg=command command=backup .+`,
 				`level=INFO msg="dry run, nothing to do" command=backup`}},
-		{name: "backup", args: []string{"backup"}, want: 3,
-			wantRecords: []string{resolved, `level=INFO msg=command command=backup .+`,
-				`level=ERROR msg="command is not implemented yet" command=backup`}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
