@@ -49,6 +49,12 @@ type Lock struct {
 	once sync.Once
 }
 
+// Path returns the path of the lock file of the state directory dir, the one that
+// Acquire locks: dir joined with the name lock as written, links are not resolved.
+func Path(dir string) string {
+	return filepath.Join(dir, fileName)
+}
+
 // Acquire locks the state directory dir without waiting. It creates dir and its missing
 // parents with the mode 0700 and keeps the mode of an existing one, opens or creates the
 // file lock in it with the mode 0600 and takes flock(LOCK_EX|LOCK_NB) on it. On success
@@ -59,7 +65,7 @@ func Acquire(dir string) (*Lock, error) {
 	if dir == "" {
 		return nil, errors.New("state directory is required")
 	}
-	path := filepath.Join(dir, fileName)
+	path := Path(dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("acquire lock %s: %w", path, err)
 	}

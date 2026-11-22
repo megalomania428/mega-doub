@@ -139,7 +139,7 @@ func Test_transient(t *testing.T) {
 			want: false,
 		},
 		{name: "wrong password", args: args{err: errWrongPassword}, want: false},
-		{name: "not initialized", args: args{err: errNotInitialized}, want: false},
+		{name: "not initialized", args: args{err: ErrNotInitialized}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

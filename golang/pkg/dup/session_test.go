@@ -276,11 +276,11 @@ func TestOpen_notInitialized(t *testing.T) {
 	logger := newLogger(&buf, slog.LevelDebug)
 	s, err := Open(t.Context(),
 		readOptions(t, storageDir, testPassword, logger, fastRetry())...)
-	if !errors.Is(err, errNotInitialized) {
+	if !errors.Is(err, ErrNotInitialized) {
 		if s != nil {
 			s.Close()
 		}
-		t.Fatalf("Open() error = %v, want %v", err, errNotInitialized)
+		t.Fatalf("Open() error = %v, want %v", err, ErrNotInitialized)
 	}
 	if got := attempts(t, &buf, operationInit+" "+defaultStorageName); len(got) != 0 {
 		t.Errorf("attempts = %v, want none", got)
@@ -910,11 +910,11 @@ func TestOpen_checkRedirect(t *testing.T) {
 			} else {
 				s, err := Open(t.Context(),
 					readOptions(t, storageDir, testPassword, nil, noRetry())...)
-				if !errors.Is(err, errNotInitialized) {
+				if !errors.Is(err, ErrNotInitialized) {
 					if s != nil {
 						s.Close()
 					}
-					t.Fatalf("Open() error = %v, want %v", err, errNotInitialized)
+					t.Fatalf("Open() error = %v, want %v", err, ErrNotInitialized)
 				}
 			}
 			if err := http.DefaultClient.CheckRedirect(nil, nil); err != nil ||

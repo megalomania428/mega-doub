@@ -192,6 +192,7 @@ func (p *parser) newRoot(build Build) *cobra.Command {
 		"show", "Show the effective configuration of the file without the retry overrides",
 	))
 	root.AddCommand(
+		p.leaf("init", "Initialize the storage"),
 		p.leaf("backup", "Back up all targets"),
 		p.leaf("prune", "Prune old revisions in the storage"),
 		check, verify, list, config,

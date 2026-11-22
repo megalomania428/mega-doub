@@ -142,7 +142,7 @@ func (s *Session) readRevision(ctx context.Context, r *backupRead) error {
 	if readErr := read.run(); readErr != nil {
 		if transient(readErr) {
 			s.logger.Warn(msgRequestFailed, "operation", opBackup, "attempt", 1,
-				"error", s.errorText(readErr))
+				"error", s.ErrorText(readErr))
 		}
 		return err
 	}

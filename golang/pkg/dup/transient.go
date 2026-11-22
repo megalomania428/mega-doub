@@ -62,7 +62,7 @@ func statusOf[E error](code func(E) int) func(error) (int, bool) {
 // WebDAV, the B2 statuses, File Fabric and the SMB transport, fail at once, and so do the
 // statuses of OneDrive, whose type is not in statusCodes. A failure that Storj, S3 or
 // Azure report as a missing file is not an error: Open takes it for a missing config,
-// which is errNotInitialized without WithInit and the start of the initialization with
+// which is ErrNotInitialized without WithInit and the start of the initialization with
 // it.
 func transient(err error) bool {
 	if errors.Is(err, errStaleListing) {

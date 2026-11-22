@@ -76,11 +76,14 @@ var (
 	errUnencrypted   = errors.New("storage is not encrypted")
 	errWrongPassword = errors.New("config of the storage cannot be decrypted: " +
 		"wrong password or damaged config")
-	errUnknownConfig  = errors.New("config of the storage has an unknown format")
-	errNotInitialized = errors.New("storage is not initialized")
-	errConfigMissing  = errors.New("config of the storage is not found after its " +
+	errUnknownConfig = errors.New("config of the storage has an unknown format")
+	errConfigMissing = errors.New("config of the storage is not found after its " +
 		"initialization")
 )
+
+// ErrNotInitialized is the error of Open without WithInit on a storage without a config;
+// errors.Is tells it in the error of Open.
+var ErrNotInitialized = errors.New("storage is not initialized")
 
 // createStorage is duplicacy.CreateStorage; tests replace it.
 var createStorage = duplicacy.CreateStorage
@@ -268,7 +271,9 @@ type Session struct {
 	// createSubdirectories has. A later attempt that reads the config creates them
 	// while it is set, as the upload of the config may have succeeded without them.
 	subdirsPending bool
-	closeOnce      sync.Once
+	// created is set when ConfigStorage of an attempt of this Open has returned true.
+	created   bool
+	closeOnce sync.Once
 }
 
 // Error is an Exception of duplicacy that a call of the operation Op panicked with.
@@ -529,7 +534,7 @@ func (s *Session) retryAttempts(ctx context.Context, a attemptRun) error {
 		err := a.run()
 		if err != nil && transient(err) {
 			s.logger.Warn(msgRequestFailed, "operation", a.operation, "attempt", attempt,
-				"error", s.errorText(err))
+				"error", s.ErrorText(err))
 			if ctx.Err() == nil {
 				return err
 			}
@@ -550,7 +555,7 @@ func (s *Session) retryAttempts(ctx context.Context, a attemptRun) error {
 }
 
 // attempt creates the storage and reads its config. A storage without a config is
-// errNotInitialized without WithInit and is initialized with it, and its config is
+// ErrNotInitialized without WithInit and is initialized with it, and its config is
 // read again. While the subdirectories of an initialization that this Open has begun
 // are not confirmed, they are created once the config is read, whichever attempt
 // finds it.
@@ -567,7 +572,7 @@ func (s *Session) attempt() error {
 	}
 	if config == nil {
 		if !s.initStorage {
-			return errNotInitialized
+			return ErrNotInitialized
 		}
 		// The result false means that another client has created the config
 		// meanwhile; the config is read again either way.
@@ -583,6 +588,7 @@ func (s *Session) attempt() error {
 		}
 		if created {
 			s.subdirsPending = false
+			s.created = true
 		}
 		if config, err = s.readConfig(storage); err != nil {
 			return err
@@ -692,14 +698,43 @@ func (s *Session) call(op string, f func()) (err error) {
 	return nil
 }
 
-// errorText is the text of err for the field error of a record: the short text of an
-// *Error is followed by the text of its cause, and the secrets are replaced with ***.
-func (s *Session) errorText(err error) string {
+// ErrorText is the text of err, an error of Open, for the field error of a record: the
+// text of err is followed by the text of the cause of its *Error, and the secrets of the
+// session that Open was called for are replaced with ***, as they are in the text of
+// err. Any other error is written as it is, with the cause of its *Error, if any.
+func ErrorText(err error) string {
+	var masks []string
+	if m, ok := errors.AsType[*maskedError](err); ok {
+		masks = m.masks
+	}
+	return fullErrorText(err, masks)
+}
+
+// ErrorText is the text of err, an error of a call of the session, for the field error
+// of a record: the short text of an *Error is followed by the text of its cause, and the
+// secrets of the session are replaced with ***.
+func (s *Session) ErrorText(err error) string {
+	return fullErrorText(err, s.masks)
+}
+
+// fullErrorText is the text of err followed by the text of the cause of its *Error,
+// with the masks replaced with ***.
+func fullErrorText(err error, masks []string) string {
 	text := err.Error()
 	if e, ok := errors.AsType[*Error](err); ok && e.Err != nil {
 		text += ": " + e.Err.Error()
 	}
-	return mask(text, s.masks)
+	return mask(text, masks)
+}
+
+// Created tells whether this Open has created the config of the storage: ConfigStorage
+// of one of its attempts has returned true. It is false without WithInit, for a storage
+// that has a config and when another client has created the config during the Open. It
+// is false as well when an attempt has written the config and then failed, such as on a
+// lost response of the upload or a failure to create a subdirectory: the next attempt
+// finds the config as one created before.
+func (s *Session) Created() bool {
+	return s.created
 }
 
 // Close closes the session: it gives the global state of duplicacy back and lets

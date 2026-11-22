@@ -55,7 +55,8 @@ func TestExecute(t *testing.T) {
 		return []string{`level=ERROR msg="invalid invocation"`, text,
 			`hint="run 'mega-doub --help'"`}
 	}
-	rootHelp := []string{"Usage:", "mega-doub [command]", "Available Commands:"}
+	rootHelp := []string{"Usage:", "mega-doub [command]", "Available Commands:",
+		"Initialize the storage"}
 	tests := []struct {
 		name       string
 		args       args
@@ -125,6 +126,13 @@ func TestExecute(t *testing.T) {
 			args:    args{args: []string{"prune"}},
 			want:    model.ExitStorage,
 			wantInv: invocation("prune"),
+			records: 1,
+		},
+		{
+			name:    "init",
+			args:    args{args: []string{"init"}},
+			want:    model.ExitStorage,
+			wantInv: invocation("init"),
 			records: 1,
 		},
 		{

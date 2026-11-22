@@ -14,6 +14,7 @@ import (
 
 	"github.com/megalomania428/mega-doub/internal/cli"
 	"github.com/megalomania428/mega-doub/pkg/config"
+	"github.com/megalomania428/mega-doub/pkg/dup"
 	"github.com/megalomania428/mega-doub/pkg/logging"
 	"github.com/megalomania428/mega-doub/pkg/model"
 	"github.com/megalomania428/mega-doub/pkg/secret"
@@ -39,10 +40,11 @@ func New(deps Deps) cli.Handler {
 
 // handle loads and validates the configuration, configures the logger by it, resolves
 // the secrets and runs the command. config show does not resolve the secrets, config
-// validate does it only with --resolve. global.timeout limits backup and prune after the
-// validation, the secrets and the command included; its expiry is the record timed out
-// and the exit code 4. Interruption is reported by cli.Execute, the handler keeps its
-// code.
+// validate does it only with --resolve. init without --dry-run writes the record command
+// and initializes the storage with storageRun, the other commands and a dry run are
+// stubs. global.timeout limits init, backup and prune after the validation, the secrets
+// and the command included; its expiry is the record timed out and the exit code 4.
+// Interruption is reported by cli.Execute, the handler keeps its code.
 func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int {
 	loaded, err := config.Load(inv.Global.Config)
 	if err != nil {
@@ -76,10 +78,11 @@ func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int
 	}
 	validate := inv.Command == "config validate"
 	work := func(workCtx context.Context) int {
+		var r secret.Resolver
 		if !validate || inv.ConfigValidate.Resolve {
 			// The resolver follows the logger of the file; the Vault client starts only at
 			// the first vault: reference.
-			r := deps.NewResolver(vaultOptions(loaded, env.Logger))
+			r = deps.NewResolver(vaultOptions(loaded, env.Logger))
 			if code := resolve(workCtx, r, loaded, env.Logger); code != model.ExitOK {
 				return code
 			}
@@ -88,9 +91,19 @@ func handle(ctx context.Context, deps Deps, inv cli.Invocation, env cli.Env) int
 			env.Logger.Info("configuration is valid", "config", inv.Global.Config)
 			return model.ExitOK
 		}
+		if inv.Command == "init" && !inv.Global.DryRun {
+			env.Logger.Info("command", commandAttrs(inv, loaded.Config)...)
+			run := storageRun{
+				logger: env.Logger, loaded: loaded, resolver: r, operation: operationInit,
+				options: []dup.SessionOption{
+					dup.WithInit(), dup.WithThreads(loaded.Config.Storage.Threads),
+				},
+			}
+			return run.run(workCtx, run.initialized)
+		}
 		return stub(inv, env, loaded.Config)
 	}
-	if inv.Command == "backup" || inv.Command == "prune" {
+	if inv.Command == "init" || inv.Command == "backup" || inv.Command == "prune" {
 		limit := timeLimit{timeout: time.Duration(loaded.Config.Global.Timeout),
 			logger: env.Logger}
 		return limit.run(ctx, work)
@@ -189,10 +202,25 @@ func tokenFailure(loaded *config.Loaded, err *secret.TokenError) failure {
 	return f
 }
 
-// stub logs the invocation of a command that has no implementation yet with the
-// effective values of its flags and prints the safe configuration; a dry run succeeds
-// and a real run reports that the command is not implemented.
+// stub logs the invocation of a command that has no implementation yet or of a dry run
+// with the effective values of its flags and prints the safe configuration; a dry run
+// succeeds and a real run reports that the command is not implemented.
 func stub(inv cli.Invocation, env cli.Env, c *config.Config) int {
+	env.Logger.Info("command", commandAttrs(inv, c)...)
+	if code := show(env, c); code != model.ExitOK {
+		return code
+	}
+	if inv.Global.DryRun {
+		env.Logger.Info("dry run, nothing to do", "command", inv.Command)
+		return model.ExitOK
+	}
+	env.Logger.Error("command is not implemented yet", "command", inv.Command)
+	return model.ExitStorage
+}
+
+// commandAttrs returns the fields of the record command: the command, the configuration
+// and the effective values of the flags of the command.
+func commandAttrs(inv cli.Invocation, c *config.Config) []any {
 	// The flag turns the bar off over the file, and an empty list draws no bar even
 	// with --no-progress=false.
 	noProgress := inv.Global.NoProgress || len(c.Global.Progress) == 0
@@ -220,16 +248,7 @@ func stub(inv cli.Invocation, env cli.Env, c *config.Config) int {
 	case "list":
 		attrs = append(attrs, "revision", inv.List.Revision)
 	}
-	env.Logger.Info("command", attrs...)
-	if code := show(env, c); code != model.ExitOK {
-		return code
-	}
-	if inv.Global.DryRun {
-		env.Logger.Info("dry run, nothing to do", "command", inv.Command)
-		return model.ExitOK
-	}
-	env.Logger.Error("command is not implemented yet", "command", inv.Command)
-	return model.ExitStorage
+	return attrs
 }
 
 // show writes the safe form of the configuration to stdout, a failure is logged and
