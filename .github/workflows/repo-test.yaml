@@ -1,5 +1,4 @@
 # kics-scan disable=555ab8f9-2001-455e-a077-f2d0f41e2fb9
-# cspell:ignore mktemp coverprofile covermode gofmt testdata mapfile
 # cspell:ignore gonosumdb goproxy gotoolchain megalipase
 ---
 name: repo test
@@ -15,107 +14,6 @@ concurrency:
   cancel-in-progress: true
 permissions: {}
 jobs:
-  tests:
-    name: tests
-    timeout-minutes: 33
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          submodules: recursive
-          persist-credentials: false
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: golang/go.mod
-          cache: true
-          cache-dependency-path: golang/go.sum
-      - name: module proxy
-        run: scripts/module-proxy.sh >> "${GITHUB_ENV}"
-      - name: go checks
-        working-directory: golang
-        run: |
-          go mod verify
-          unformatted="$(gofmt -l .)"
-          if [[ -n "${unformatted}" ]]; then
-            printf 'unformatted files:\n%s\n' "${unformatted}"
-            exit 1
-          fi
-          go build ./...
-          go vet ./...
-          go test -race ./...
-      - name: smoke
-        working-directory: golang
-        run: |
-          dir="${RUNNER_TEMP:-/tmp}/mega-doub-smoke"
-          mkdir -p "${dir}"
-          go build -o "${dir}/mega-doub" ./cmd/mega-doub
-          expect() {
-            local want="$1" got=0
-            shift
-            "${dir}/mega-doub" "$@" >/dev/null 2>&1 || got=$?
-            if [[ "${got}" -ne "${want}" ]]; then
-              printf 'mega-doub %s: exit code %s, want %s\n' "$*" "${got}" "${want}"
-              exit 1
-            fi
-          }
-          expect 0 --help
-          expect 0 version
-          expect 0 --version
-          expect 2 bogus
-          expect 2 backup --bogus
-          expect 0 config validate -c testdata/example.yaml
-          expect 0 config validate -c testdata/example-vault.yaml
-          (
-            export MAX_RETRIES_TIME=bogus
-            expect 2 config validate -c testdata/example.yaml
-          ) || exit 1
-          expect 2 config validate -c testdata/invalid/unknown-key-root.yaml
-          expect 2 config validate -c testdata/invalid/storage-keys.yaml
-          expect 0 config show -c testdata/example.yaml
-          # The env: references of example.yaml resolve to fake values.
-          mapfile -t names < <(grep -oE 'env:MEGA_DOUB_EXAMPLE_[A-Za-z0-9_]+' \
-            testdata/example.yaml | sed 's/^env://' | sort -u)
-          if [[ "${#names[@]}" -eq 0 ]]; then
-            echo 'no MEGA_DOUB_EXAMPLE_* references found in testdata/example.yaml' >&2
-            exit 1
-          fi
-          for name in "${names[@]}"; do
-            value="${name,,}"
-            export "${name}=fake-${value//_/-}"
-          done
-          expect 0 config validate --resolve -c testdata/example.yaml
-          (
-            unset "${names[@]}"
-            expect 2 config validate --resolve -c testdata/example.yaml
-          ) || exit 1
-          expect 0 backup --dry-run -c testdata/example.yaml
-          expect 0 init --dry-run -c testdata/example.yaml
-          (
-            init_dir="$(mktemp -d -p "${dir}")"
-            export MEGA_DOUB_SMOKE_PASSWORD="fake-${init_dir##*.}-password"
-            printf '%s\n' '---' 'global:' "  copy_dir: '${init_dir}/copy'" \
-              "  state_dir: '${init_dir}/state'" '  progress: []' 'storage:' \
-              "  url: '${init_dir}/storage'" '  snapshot_id: smoke' \
-              "  password: 'env:MEGA_DOUB_SMOKE_PASSWORD'" 'prune:' \
-              "  keep: ['1:7']" >"${init_dir}/init.yaml"
-            mkdir -p "${init_dir}/copy"
-            printf 'smoke\n' >"${init_dir}/copy/data.txt"
-            expect 3 backup -c "${init_dir}/init.yaml"
-            if [[ -e "${init_dir}/storage/config" ]]; then
-              printf 'mega-doub backup: config in %s before init\n' "${init_dir}/storage"
-              exit 1
-            fi
-            expect 0 init -c "${init_dir}/init.yaml"
-            expect 0 init -c "${init_dir}/init.yaml"
-            if [[ ! -f "${init_dir}/storage/config" ]]; then
-              printf 'mega-doub init: no config in %s\n' "${init_dir}/storage"
-              exit 1
-            fi
-            expect 0 backup -c "${init_dir}/init.yaml"
-            expect 0 backup -c "${init_dir}/init.yaml"
-            expect 0 prune -c "${init_dir}/init.yaml"
-          ) || exit 1
   linters:
     name: linters
     timeout-minutes: 11
@@ -160,7 +58,6 @@ jobs:
     timeout-minutes: 5
     runs-on: ubuntu-24.04
     needs:
-      - tests
       - linters
       - MegaLinter
     if: ${{ always() && github.event_name == 'pull_request' }}

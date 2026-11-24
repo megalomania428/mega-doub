@@ -15,6 +15,26 @@ go build -o mega-doub -ldflags "-X main.version=${version} -X main.commit=${comm
   ./cmd/mega-doub
 ```
 
+The workflow `.github/workflows/build.yaml` runs the checks and the build through scripts that work from any directory and leave nothing in the working copy: the binaries, the archives and the files of the smoke checks go into `${RUNNER_TEMP:-/tmp}`, where [scripts/build.sh](scripts/build.sh) removes and recreates its directories `mega-doub-build` and `mega-doub-out` on every run; `RUNNER_TEMP` moves them elsewhere, such as on a host where another user owns them in `/tmp`. [scripts/tests/go-checks.sh](scripts/tests/go-checks.sh) runs `go mod verify`, `gofmt -l`, `go build`, `go vet` and `go test -race` in `golang/`, `scripts/build.sh` builds the binaries of all supported platforms with `CGO_ENABLED=0` into `mega-doub-build/<os>-<arch>/mega-doub` and packs them into `mega-doub-out/`, and [scripts/tests/go-smoke.sh](scripts/tests/go-smoke.sh) `<binary>` checks the exit codes of a built binary. `scripts/tests/go-checks.sh` and `scripts/build.sh` need the variables of `scripts/module-proxy.sh` in the environment; `scripts/build.sh` also needs bash 4.1 or newer (the redirection `exec {lock}>` does not parse in bash 3.2 of macOS), `scripts/tests/go-smoke.sh` needs bash 4.0 or newer (`mapfile` and `${name,,}` are missing in bash 3.2 of macOS), Go of the version in `golang/go.mod`, `git`, `file`, `flock` and GNU `tar` with `xz` support (the options `--owner`, `--group`, `--numeric-owner` and `--mode`), and `go test -race` needs cgo with a C compiler. `scripts/build.sh` waits for another run of itself with the same `${RUNNER_TEMP:-/tmp}`, so concurrent builds that run the smoke check of the built binary need a `RUNNER_TEMP` each, and both `scripts/build.sh` and `scripts/tests/go-smoke.sh` refuse a `RUNNER_TEMP` that is not an absolute path.
+
+```bash
+proxy="$(scripts/module-proxy.sh)" && export ${proxy}
+scripts/tests/go-checks.sh
+scripts/build.sh
+scripts/tests/go-smoke.sh "${RUNNER_TEMP:-/tmp}/mega-doub-build/linux-amd64/mega-doub"
+```
+
+### Releases
+
+A pushed tag `v*` builds the release of the tag with the archives of all platforms and publishes it with the generated release notes. A pull request from this repository builds the one shared draft release `v999` instead: the archives of every build are added to it and replace the ones with the same name, the older ones stay, so the draft is cleaned up by deleting it by hand. `v999` must stay a draft: the pull requests do not touch a published release, but they do update a published prerelease `v999` and replace its archives. Pull requests from forks and from Dependabot run the checks, the build and the smoke checks without publishing anything. An archive `mega-doub-<version>-<os>-<arch>.tar.xz` holds the only file `mega-doub`, and its version has `.` and `/` replaced with `_`: the tag, such as `mega-doub-v0_0_1-linux-amd64.tar.xz`, or outside a tag `git describe` with `.dev.<run number>.<run attempt>` of GitHub Actions, such as `mega-doub-v0_0_1-3-g1a2b3c4_dev_42_1-linux-amd64.tar.xz`, where each number is `0` outside GitHub Actions. `mega-doub version` prints the same version with `.` and `/` kept.
+
+- to release a version, tag `master` and push the tag:
+
+  ```bash
+  git checkout master && git pull; TAG4REL='v0.0.1'
+  git tag -fm $(git branch --sho) ${TAG4REL} && git push --force origin ${TAG4REL}
+  ```
+
 ## Usage
 
 ```text
@@ -129,4 +149,4 @@ The output masks the secrets: a non-empty `plain:` reference and a value without
 - `4` – interrupted by a signal before or during the command, or stopped by `global.timeout` during `init`, `backup` or `prune`;
 - `1`, `5` and `6` are reserved for the failures of the sources, of the protection and of the verification and are not returned yet.
 
-<!-- cspell:ignore acd doub duplicacy evn flock gcd gcs gonoproxy gonosumdb goprivate goproxy hubic ldflags minio minios mktemp odb sftpc smb storj testdata wasabi webdav -->
+<!-- cspell:ignore acd dependabot doub duplicacy evn flock gcd gcs gofmt gonoproxy gonosumdb goprivate goproxy hubic ldflags mapfile minio minios mktemp odb sftpc smb storj testdata wasabi webdav -->

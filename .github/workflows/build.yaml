@@ -1,0 +1,56 @@
+# kics-scan disable=555ab8f9-2001-455e-a077-f2d0f41e2fb9
+# cspell:ignore dependabot doub ncipollo
+---
+name: build
+on:
+  pull_request:
+  push:
+    tags:
+      - "v*"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+permissions: {}
+jobs:
+  build:
+    name: build
+    timeout-minutes: 33
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: golang/go.mod
+          cache: false
+      - name: module proxy
+        run: scripts/module-proxy.sh >> "${GITHUB_ENV}"
+      - name: go checks
+        run: scripts/tests/go-checks.sh
+      - name: build
+        run: scripts/build.sh
+      - name: smoke
+        env:
+          SMOKE_BIN: ${{ runner.temp }}/mega-doub-build/linux-amd64/mega-doub
+        run: scripts/tests/go-smoke.sh "${SMOKE_BIN}"
+      - name: publish
+        id: publish
+        if: github.ref_type == 'tag' ||
+          (github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.user.login != 'dependabot[bot]')
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_type == 'tag' && github.ref_name || 'v999' }}
+          name: mega-doub ${{ github.ref_type == 'tag' && github.ref_name || 'draft' }}
+          draft: ${{ github.ref_type != 'tag' }}
+          allowUpdates: true
+          updateOnlyUnreleased: ${{ github.ref_type != 'tag' }}
+          omitBodyDuringUpdate: true
+          generateReleaseNotes: ${{ github.ref_type == 'tag' }}
+          artifacts: ${{ runner.temp }}/mega-doub-out/*.tar.xz
+          artifactErrorsFailBuild: true
