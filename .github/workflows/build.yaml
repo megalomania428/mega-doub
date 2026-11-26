@@ -39,7 +39,6 @@ jobs:
           SMOKE_BIN: ${{ runner.temp }}/mega-doub-build/linux-amd64/mega-doub
         run: scripts/tests/go-smoke.sh "${SMOKE_BIN}"
       - name: publish
-        id: publish
         if: github.ref_type == 'tag' ||
           (github.event.pull_request.head.repo.full_name == github.repository &&
           github.event.pull_request.user.login != 'dependabot[bot]')
