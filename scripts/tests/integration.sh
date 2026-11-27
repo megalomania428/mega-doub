@@ -8,6 +8,8 @@
 # binary of mega-doub from MEGA_DOUB_BIN or build one. gotestsum prints the format
 # testdox, or github-actions in GitHub Actions, and the summary of the tests follows.
 # MEGA_DOUB_IT_DEMO=1 also shows the output of mega-doub on the terminal.
+# MEGA_DOUB_IT_PAUSE=1 also stops the tests at five points until a key is pressed, so
+# they run without a timeout.
 set -euo pipefail
 gotestsum='gotest.tools/gotestsum@v1.13.0'
 if [[ $# -gt 1 ]]; then
@@ -55,10 +57,14 @@ format='testdox'
 if [[ "${GITHUB_ACTIONS:-}" == 'true' ]]; then
   format='github-actions'
 fi
+test_timeout='30m'
+if [[ "${MEGA_DOUB_IT_PAUSE:-}" == '1' ]]; then
+  test_timeout='0'
+fi
 cd "${scripts}/../golang"
 status=0
-go run "${gotestsum}" --format "${format}" -- -tags=integration -count=1 -timeout=30m \
-  -run "${tests}" ./integration/ || status=$?
+go run "${gotestsum}" --format "${format}" -- -tags=integration -count=1 \
+  -timeout="${test_timeout}" -run "${tests}" ./integration/ || status=$?
 if [[ -s "${summary}" ]]; then
   printf '\nSummary:\n'
   cat "${summary}"

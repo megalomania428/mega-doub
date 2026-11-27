@@ -120,17 +120,22 @@ func (r records) decode(msg string, v any) error {
 
 // megaDoub runs the mega-doub binary with the configuration of a scenario.
 type megaDoub struct {
-	bin    string
-	config string
-	env    []string
-	tty    io.Writer // terminal of the demo mode, nil without it
+	bin      string
+	config   string
+	env      []string
+	vars     []string    // NAME=value of the variables that the scenario adds to env
+	tty      io.Writer   // terminal of the demo mode, nil without it
+	commands *commandLog // runs since the last pause
 }
 
 // run runs the command with JSON log records and returns the records of its stderr. A
 // failed run gives an error with the whole stderr.
 func (m *megaDoub) run(command string) (records, error) {
-	cmd := exec.Command(m.bin, "--config", m.config, "--log-format", "json", command)
+	args := []string{"--config", m.config, "--log-format", "json", command}
+	cmd := exec.Command(m.bin, args...)
 	cmd.Env = m.env
+	dir, _ := os.Getwd()
+	m.commands.add(shellLine{dir: dir, vars: m.vars, bin: m.bin, args: args}.String())
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if m.tty != nil {
@@ -190,11 +195,11 @@ func environ(add ...string) []string {
 	return append(env, add...)
 }
 
-// demoTerminal returns the terminal for the output of mega-doub in the demo mode, or nil
-// outside the demo mode and without a terminal.
-func demoTerminal(t *testing.T) io.Writer {
+// demoTerminal returns the terminal for the output of mega-doub when the demo mode is on,
+// or nil outside the demo mode and without a terminal.
+func demoTerminal(t *testing.T, on bool) io.Writer {
 	t.Helper()
-	if !demo() {
+	if !on {
 		return nil
 	}
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)

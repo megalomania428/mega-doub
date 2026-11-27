@@ -47,6 +47,8 @@ The binary comes from `MEGA_DOUB_BIN`, an absolute path, or the test builds it. 
 
 The output goes through gotestsum in the format `testdox`, or `github-actions` when `GITHUB_ACTIONS=true`, followed by a summary of the files, the bytes, the new chunks and the times of the backups and the restores. `MEGA_DOUB_IT_DEMO=1` also prints the output of mega-doub with its progress bars as lines of text to the terminal `/dev/tty`; without a terminal the tests run as usual.
 
+`MEGA_DOUB_IT_PAUSE=1` adds five stops to the demo mode: after `init`, the backups of r1 and r3, the exclusive prune and the restore of r4 by upstream. A stop prints the commands since the last stop with masked values, the paths and what was done. `next` and `Enter` go on, `q` and `Enter` stop, an empty `Enter` is ignored. The script sets `-timeout=0`. The pauses are off with a warning without `/dev/tty` or with `GITHUB_ACTIONS=true`.
+
 The tests run only on Linux x86-64, because both downloaded duplicacy CLIs are linux/amd64 builds.
 
 The tests need Go of the version in `golang/go.mod`, `git` with the history of the repository, `curl`, `tar` with `xz` support, `sha256sum`, GNU `mktemp`, `stat`, `mv`, `realpath`, `dirname` and `flock`, bash 4.1 or newer for the redirection `exec {lock}>`, and the network for the downloads of the CLIs, of gotestsum and of `go mod download`.
@@ -60,6 +62,7 @@ The tests do not change the clock: the rules of `prune.keep` by the age of the r
 ```bash
 scripts/tests/integration.sh local
 MEGA_DOUB_IT_DEMO=1 scripts/tests/integration.sh local
+MEGA_DOUB_IT_PAUSE=1 scripts/tests/integration.sh local
 ```
 
 ## Usage

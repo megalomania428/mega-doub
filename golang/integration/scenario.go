@@ -55,6 +55,7 @@ func WithCleanup(cleanup func()) Option {
 // restores every revision with both duplicacy CLIs and checks both kinds of prune.
 type scenario struct {
 	name     string // storage in the summary, such as local
+	cfg      storageConfig
 	access   access
 	mega     *megaDoub
 	clis     []duplicacyCLI
@@ -66,6 +67,9 @@ type scenario struct {
 	last     int                     // newest revision
 	phase    string                  // prefix of the names of the subtests
 	summary  string                  // file of MEGA_DOUB_IT_SUMMARY, may be empty
+	pauser   *pauser                 // terminal of the pauses, nil without them
+	commands *commandLog             // runs since the last pause
+	stopped  string                  // message of the pause where the user chose q
 }
 
 // restoreCase is the restore of a revision with a CLI.
@@ -94,24 +98,34 @@ func runScenario(t *testing.T, opts ...Option) {
 	if !t.Run("init", s.initStorage) {
 		t.FailNow()
 	}
+	s.halt(t)
 	for n := 1; n <= 3; n++ {
 		s.backup(t, n)
+		s.halt(t)
 	}
 	t.Run("r2/new-chunks", s.newChunks)
+	s.halt(t)
 	if !t.Run("prune-1/mega-doub", s.freshPrune) {
 		t.FailNow()
 	}
+	s.halt(t)
 	s.restoreAll(t)
+	s.halt(t)
 	s.checkAll(t)
+	s.halt(t)
 	s.phase = "prune-2/"
 	if !t.Run("prune-2/exclusive", s.exclusivePrune) {
 		t.FailNow()
 	}
+	s.halt(t)
 	s.backup(t, 4)
+	s.halt(t)
 	if !t.Run("prune-2/mega-doub", s.prune) {
 		t.FailNow()
 	}
+	s.halt(t)
 	s.restoreAll(t)
+	s.halt(t)
 	s.checkAll(t)
 }
 
@@ -125,7 +139,10 @@ func newScenario(t *testing.T, o scenarioOptions) *scenario {
 	password := "fake-" + id + "-password"
 	work := t.TempDir()
 	keys := slices.Sorted(maps.Keys(o.keys))
-	cfg := storageConfig{dir: work, url: o.url, snapshotID: id, keys: keys, demo: demo()}
+	pauser := newPauser(t)
+	// The pauses come with the demo mode.
+	showDemo := demo() || pauser != nil
+	cfg := storageConfig{dir: work, url: o.url, snapshotID: id, keys: keys, demo: showDemo}
 	config := filepath.Join(work, "mega-doub.yaml")
 	must(t, os.WriteFile(config, []byte(cfg.yaml()), 0o600))
 	// An empty variable of global.retry counts as unset.
@@ -136,11 +153,15 @@ func newScenario(t *testing.T, o scenarioOptions) *scenario {
 		megaEnv = append(megaEnv, keyVariable(key)+"="+o.keys[key])
 		cliEnv = append(cliEnv, "DUPLICACY_"+strings.ToUpper(key)+"="+o.keys[key])
 	}
+	commands := &commandLog{}
 	mega := &megaDoub{bin: megaDoubBinary(t), config: config, env: environ(megaEnv...),
-		tty: demoTerminal(t)}
+		vars: megaEnv, tty: demoTerminal(t, showDemo), commands: commands}
+	cliAccess := access{snapshotID: id, url: o.url, env: environ(cliEnv...), vars: cliEnv,
+		commands: commands}
 	return &scenario{
 		name:     name,
-		access:   access{snapshotID: id, url: o.url, env: environ(cliEnv...)},
+		cfg:      cfg,
+		access:   cliAccess,
 		mega:     mega,
 		clis:     clis,
 		patched:  clis[len(clis)-1],
@@ -149,13 +170,18 @@ func newScenario(t *testing.T, o scenarioOptions) *scenario {
 		backups:  map[int]backupCompleted{},
 		removed:  map[int]bool{},
 		summary:  os.Getenv("MEGA_DOUB_IT_SUMMARY"),
+		pauser:   pauser,
+		commands: commands,
 	}
 }
 
 // initStorage initializes the storage with mega-doub.
 func (s *scenario) initStorage(t *testing.T) {
-	_, err := s.mega.run("init")
+	recs, err := s.mega.run("init")
 	must(t, err)
+	if s.pauser != nil {
+		s.pause(t, s.initBlock(recs))
+	}
 }
 
 // backup builds revision n, backs it up with mega-doub and keeps the manifest that the
@@ -199,6 +225,9 @@ func (s *scenario) backup(t *testing.T, n int) {
 		}
 		s.note(t, fmt.Sprintf("r%d backup: %s%d files, %d bytes, %d new chunks, %s",
 			n, layers, got.Files, got.Bytes, got.NewChunks, got.Duration))
+		if s.pauser != nil && (n == 1 || n == 3) {
+			s.pause(t, s.backupBlock(n))
+		}
 	})
 	if !ok {
 		t.FailNow()
@@ -249,9 +278,17 @@ func (s *scenario) pruneRecord(t *testing.T) pruneCompleted {
 // exclusivePrune removes r2 with prune -r 2 -exclusive of the patched CLI.
 func (s *scenario) exclusivePrune(t *testing.T) {
 	repo := s.patched.open(t, s.access)
+	var before, after storageTotal
+	if s.pauser != nil {
+		before = repo.storage(t)
+	}
 	_, err := repo.run("prune", "-r", "2", "-exclusive")
 	must(t, err)
 	s.removed[2] = true
+	if s.pauser != nil {
+		after = repo.storage(t)
+		s.pause(t, s.pruneBlock(before, after))
+	}
 }
 
 // restoreAll restores every revision with every CLI, each in its own subtest.
@@ -262,6 +299,7 @@ func (s *scenario) restoreAll(t *testing.T) {
 			c := restoreCase{cli: cli, revision: n}
 			name := fmt.Sprintf("%sr%d/restore/%s", s.phase, n, cli.name)
 			t.Run(name, func(t *testing.T) { s.restore(t, c) })
+			s.halt(t)
 		}
 	}
 }
@@ -296,6 +334,11 @@ func (s *scenario) restore(t *testing.T, c restoreCase) {
 	}
 	s.note(t, fmt.Sprintf("%sr%d restore %s: %s, %d directories with another mtime",
 		s.phase, c.revision, c.cli.name, elapsed, want.dirTimes(got)))
+	// Only the second phase restores r4.
+	if s.pauser != nil && c.revision == 4 && c.cli.name == upstreamName {
+		s.pause(t, s.restoreBlock(restored{revision: c.revision, cli: c.cli.name,
+			dir: repo.dir, differences: len(diff)}))
+	}
 }
 
 // checkAll runs duplicacy check -a with every CLI, each in its own subtest.

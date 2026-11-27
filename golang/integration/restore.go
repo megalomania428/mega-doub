@@ -7,6 +7,7 @@ package integration
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,9 @@ import (
 	"strings"
 	"testing"
 )
+
+// upstreamName is the name of the upstream release in the subtests.
+const upstreamName = "upstream-3.3.1"
 
 // duplicacyCLI is a build of the duplicacy CLI that restores and checks the backups.
 type duplicacyCLI struct {
@@ -28,25 +32,37 @@ type access struct {
 	snapshotID string
 	url        string
 	env        []string
+	vars       []string    // NAME=value of the variables that the scenario adds to env
+	commands   *commandLog // runs since the last pause
 }
 
 // cliRepo is a repository of a duplicacy CLI: a directory with the settings .duplicacy
 // that are connected to the storage of a scenario.
 type cliRepo struct {
-	bin string
-	dir string
-	env []string
+	bin      string
+	dir      string
+	env      []string
+	vars     []string    // NAME=value of the variables that the scenario adds to env
+	commands *commandLog // runs since the last pause
 }
 
 // tabular is the output of duplicacy check -tabular.
 type tabular []byte
+
+// storageTotal is the storage as the table of check -a -tabular shows it: the chunks and
+// the bytes of the whole storage and the revisions in it.
+type storageTotal struct {
+	chunks    int64
+	bytes     int64
+	revisions []int
+}
 
 // duplicacyCLIs returns the upstream release and the patched build of update-graves from
 // the variables that scripts/tests/integration-tools.sh prints.
 func duplicacyCLIs(t *testing.T) []duplicacyCLI {
 	t.Helper()
 	return []duplicacyCLI{
-		{name: "upstream-3.3.1", bin: requireEnv(t, "MEGA_DOUB_IT_UPSTREAM")},
+		{name: upstreamName, bin: requireEnv(t, "MEGA_DOUB_IT_UPSTREAM")},
 		{name: "patched-3.3.0-p003", bin: requireEnv(t, "MEGA_DOUB_IT_PATCHED")},
 	}
 }
@@ -69,7 +85,8 @@ func requireEnv(t *testing.T, name string) string {
 // duplicacy init -e and the storage name default.
 func (c duplicacyCLI) open(t *testing.T, a access) cliRepo {
 	t.Helper()
-	r := cliRepo{bin: c.bin, dir: t.TempDir(), env: a.env}
+	r := cliRepo{bin: c.bin, dir: t.TempDir(), env: a.env, vars: a.vars,
+		commands: a.commands}
 	_, err := r.run("init", "-e", a.snapshotID, a.url)
 	must(t, err)
 	return r
@@ -81,6 +98,7 @@ func (r cliRepo) run(args ...string) ([]byte, error) {
 	cmd := exec.Command(r.bin, args...)
 	cmd.Dir = r.dir
 	cmd.Env = r.env
+	r.commands.add(shellLine{dir: r.dir, vars: r.vars, bin: r.bin, args: args}.String())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		command := filepath.Base(r.bin) + " " + strings.Join(args, " ")
@@ -100,4 +118,64 @@ func (tb tabular) chunks(rev int) (int64, error) {
 		}
 	}
 	return 0, fmt.Errorf("no row of revision %d in the output of check -tabular", rev)
+}
+
+// total returns the totals of the storage: the columns chunks and bytes of the row all,
+// which counts every chunk of the snapshot once, and the revisions of the other rows. The
+// table shows the bytes in KiB, rounded down: 512 or 30,546K.
+func (tb tabular) total() (storageTotal, error) {
+	var total storageTotal
+	found := false
+	for line := range strings.Lines(string(tb)) {
+		cells := strings.Split(line, "|")
+		if len(cells) < 7 {
+			continue
+		}
+		rev := strings.TrimSpace(cells[1])
+		if n, err := strconv.Atoi(rev); err == nil {
+			total.revisions = append(total.revisions, n)
+		}
+		if rev != "all" {
+			continue
+		}
+		chunks, err := strconv.ParseInt(strings.TrimSpace(cells[5]), 10, 64)
+		if err != nil {
+			return total, err
+		}
+		size := strings.ReplaceAll(strings.TrimSpace(cells[6]), ",", "")
+		size, kib := strings.CutSuffix(size, "K")
+		volume, err := strconv.ParseInt(size, 10, 64)
+		if err != nil {
+			return total, err
+		}
+		if kib {
+			volume <<= 10
+		}
+		total.chunks, total.bytes, found = chunks, volume, true
+	}
+	if !found {
+		return total, errors.New("no row all in the output of check -tabular")
+	}
+	return total, nil
+}
+
+// storage runs check -a -tabular and returns the totals of the storage; a failure stops
+// the test.
+func (r cliRepo) storage(t *testing.T) storageTotal {
+	t.Helper()
+	out, err := r.run("check", "-a", "-tabular")
+	must(t, err)
+	total, err := tabular(out).total()
+	must(t, err)
+	return total
+}
+
+// String returns the totals in a line.
+func (st storageTotal) String() string {
+	revisions := make([]string, len(st.revisions))
+	for i, n := range st.revisions {
+		revisions[i] = strconv.Itoa(n)
+	}
+	return fmt.Sprintf("%d chunks, %d bytes, revisions %s", st.chunks, st.bytes,
+		strings.Join(revisions, " "))
 }
