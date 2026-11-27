@@ -1,5 +1,5 @@
 ---
-# cspell:ignore testdata
+# cspell:ignore golangci testdata
 EXTENDS: .megalinter-action.yml
 # Files in golang/testdata/invalid/ are broken on purpose to test the loader.
 YAML_YAMLLINT_FILTER_REGEX_EXCLUDE: "(^|/)golang/testdata/invalid/"
@@ -12,3 +12,5 @@ ANSIBLE_ANSIBLE_LINT_ARGUMENTS: >-
   --exclude golang/testdata/invalid/duplicate-key.yaml
   --exclude golang/testdata/invalid/duplicate-merge.yaml
   --exclude golang/testdata/invalid/not-yaml.yaml
+# golangci-lint checks the files of the integration tests only with their build tag.
+GO_GOLANGCI_LINT_ARGUMENTS: "--build-tags=integration"

@@ -14,6 +14,9 @@ permissions: {}
 jobs:
   build:
     name: build
+    if: github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]')
     timeout-minutes: 33
     runs-on: ubuntu-24.04
     permissions:
@@ -31,18 +34,21 @@ jobs:
       - name: module proxy
         run: scripts/module-proxy.sh >> "${GITHUB_ENV}"
       - name: go checks
+        if: github.ref_type != 'tag'
         run: scripts/tests/go-checks.sh
       - name: build
         run: scripts/build.sh
       - name: smoke
+        if: github.ref_type != 'tag'
         env:
           SMOKE_BIN: ${{ runner.temp }}/mega-doub-build/linux-amd64/mega-doub
         run: scripts/tests/go-smoke.sh "${SMOKE_BIN}"
+      - name: integration
+        if: github.ref_type != 'tag'
+        env:
+          MEGA_DOUB_BIN: ${{ runner.temp }}/mega-doub-build/linux-amd64/mega-doub
+        run: scripts/tests/integration.sh all
       - name: publish
-        id: publish
-        if: github.ref_type == 'tag' ||
-          (github.event.pull_request.head.repo.full_name == github.repository &&
-          github.event.pull_request.user.login != 'dependabot[bot]')
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.ref_type == 'tag' && github.ref_name || 'v999' }}
