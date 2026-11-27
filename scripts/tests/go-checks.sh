@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # cspell:ignore duplicacy gofmt gonosumdb goproxy
 # Runs the Go checks of the module in golang/: the module verification, the formatting,
-# the build, vet and the tests with the race detector. GOPROXY and GONOSUMDB for the
-# module duplicacy.invalid/v3 come from scripts/module-proxy.sh in the environment.
+# the build, vet without and with the build tag integration of the integration tests and
+# the tests with the race detector. GOPROXY and GONOSUMDB for the module
+# duplicacy.invalid/v3 come from scripts/module-proxy.sh in the environment.
 set -euo pipefail
 source_path="${BASH_SOURCE[0]}"
 if [[ "${source_path}" != */* ]]; then
@@ -17,4 +18,5 @@ if [[ -n "${unformatted}" ]]; then
 fi
 go build ./...
 go vet ./...
+go vet -tags=integration ./...
 go test -race ./...

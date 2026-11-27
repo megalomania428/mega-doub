@@ -15,7 +15,7 @@ go build -o mega-doub -ldflags "-X main.version=${version} -X main.commit=${comm
   ./cmd/mega-doub
 ```
 
-The workflow `.github/workflows/build.yaml` runs the checks and the build through scripts that work from any directory and leave nothing in the working copy: the binaries, the archives and the files of the smoke checks go into `${RUNNER_TEMP:-/tmp}`, where [scripts/build.sh](scripts/build.sh) removes and recreates its directories `mega-doub-build` and `mega-doub-out` on every run; `RUNNER_TEMP` moves them elsewhere, such as on a host where another user owns them in `/tmp`. [scripts/tests/go-checks.sh](scripts/tests/go-checks.sh) runs `go mod verify`, `gofmt -l`, `go build`, `go vet` and `go test -race` in `golang/`, `scripts/build.sh` builds the binaries of all supported platforms with `CGO_ENABLED=0` into `mega-doub-build/<os>-<arch>/mega-doub` and packs them into `mega-doub-out/`, and [scripts/tests/go-smoke.sh](scripts/tests/go-smoke.sh) `<binary>` checks the exit codes of a built binary. `scripts/tests/go-checks.sh` and `scripts/build.sh` need the variables of `scripts/module-proxy.sh` in the environment; `scripts/build.sh` also needs bash 4.1 or newer (the redirection `exec {lock}>` does not parse in bash 3.2 of macOS), `scripts/tests/go-smoke.sh` needs bash 4.0 or newer (`mapfile` and `${name,,}` are missing in bash 3.2 of macOS), Go of the version in `golang/go.mod`, `git`, `file`, `flock` and GNU `tar` with `xz` support (the options `--owner`, `--group`, `--numeric-owner` and `--mode`), and `go test -race` needs cgo with a C compiler. `scripts/build.sh` waits for another run of itself with the same `${RUNNER_TEMP:-/tmp}`, so concurrent builds that run the smoke check of the built binary need a `RUNNER_TEMP` each, and both `scripts/build.sh` and `scripts/tests/go-smoke.sh` refuse a `RUNNER_TEMP` that is not an absolute path.
+The workflow `.github/workflows/build.yaml` runs the checks and the build through scripts that work from any directory and leave nothing in the working copy: the binaries, the archives and the files of the smoke checks go into `${RUNNER_TEMP:-/tmp}`, where [scripts/build.sh](scripts/build.sh) removes and recreates its directories `mega-doub-build` and `mega-doub-out` on every run; `RUNNER_TEMP` moves them elsewhere, such as on a host where another user owns them in `/tmp`. [scripts/tests/go-checks.sh](scripts/tests/go-checks.sh) runs `go mod verify`, `gofmt -l`, `go build`, `go vet` without and with the build tag `integration` and `go test -race` in `golang/`, `scripts/build.sh` builds the binaries of all supported platforms with `CGO_ENABLED=0` into `mega-doub-build/<os>-<arch>/mega-doub` and packs them into `mega-doub-out/`, and [scripts/tests/go-smoke.sh](scripts/tests/go-smoke.sh) `<binary>` checks the exit codes of a built binary. `scripts/tests/go-checks.sh` and `scripts/build.sh` need the variables of `scripts/module-proxy.sh` in the environment; `scripts/build.sh` also needs bash 4.1 or newer (the redirection `exec {lock}>` does not parse in bash 3.2 of macOS), `scripts/tests/go-smoke.sh` needs bash 4.0 or newer (`mapfile` and `${name,,}` are missing in bash 3.2 of macOS), Go of the version in `golang/go.mod`, `git`, `file`, `flock` and GNU `tar` with `xz` support (the options `--owner`, `--group`, `--numeric-owner` and `--mode`), and `go test -race` needs cgo with a C compiler. `scripts/build.sh` waits for another run of itself with the same `${RUNNER_TEMP:-/tmp}`, so concurrent builds that run the smoke check of the built binary need a `RUNNER_TEMP` each, and both `scripts/build.sh` and `scripts/tests/go-smoke.sh` refuse a `RUNNER_TEMP` that is not an absolute path.
 
 ```bash
 proxy="$(scripts/module-proxy.sh)" && export ${proxy}
@@ -26,7 +26,7 @@ scripts/tests/go-smoke.sh "${RUNNER_TEMP:-/tmp}/mega-doub-build/linux-amd64/mega
 
 ### Releases
 
-A pushed tag `v*` builds the release of the tag with the archives of all platforms and publishes it with the generated release notes. A pull request from this repository builds the one shared draft release `v999` instead: the archives of every build are added to it and replace the ones with the same name, the older ones stay, so the draft is cleaned up by deleting it by hand. `v999` must stay a draft: the pull requests do not touch a published release, but they do update a published prerelease `v999` and replace its archives. Pull requests from forks and from Dependabot run the checks, the build and the smoke checks without publishing anything. An archive `mega-doub-<version>-<os>-<arch>.tar.xz` holds the only file `mega-doub`, and its version has `.` and `/` replaced with `_`: the tag, such as `mega-doub-v0_0_1-linux-amd64.tar.xz`, or outside a tag `git describe` with `.dev.<run number>.<run attempt>` of GitHub Actions, such as `mega-doub-v0_0_1-3-g1a2b3c4_dev_42_1-linux-amd64.tar.xz`, where each number is `0` outside GitHub Actions. `mega-doub version` prints the same version with `.` and `/` kept.
+A pushed tag `v*` builds the release of the tag with the archives of all platforms and publishes it with the generated release notes; a tag skips the Go checks, the smoke checks and the integration tests. A pull request from this repository builds the one shared draft release `v999` instead: the archives of every build are added to it and replace the ones with the same name, the older ones stay, so the draft is cleaned up by deleting it by hand. `v999` must stay a draft: the pull requests do not touch a published release, but they do update a published prerelease `v999` and replace its archives. For pull requests from forks and from Dependabot the workflow `.github/workflows/build.yaml` does not run its job `build`: the checks, the build, the smoke checks, the integration tests and the publication. An archive `mega-doub-<version>-<os>-<arch>.tar.xz` holds the only file `mega-doub`, and its version has `.` and `/` replaced with `_`: the tag, such as `mega-doub-v0_0_1-linux-amd64.tar.xz`, or outside a tag `git describe` with `.dev.<run number>.<run attempt>` of GitHub Actions, such as `mega-doub-v0_0_1-3-g1a2b3c4_dev_42_1-linux-amd64.tar.xz`, where each number is `0` outside GitHub Actions. `mega-doub version` prints the same version with `.` and `/` kept.
 
 - to release a version, tag `master` and push the tag:
 
@@ -34,6 +34,33 @@ A pushed tag `v*` builds the release of the tag with the archives of all platfor
   git checkout master && git pull; TAG4REL='v0.0.1'
   git tag -fm $(git branch --sho) ${TAG4REL} && git push --force origin ${TAG4REL}
   ```
+
+## Tests
+
+`scripts/tests/integration.sh local` runs the integration tests in `golang/integration`, the Go tests with the build tag `integration`, the same way in the workflow `.github/workflows/build.yaml` and by hand. The workflow runs it with `all`, which is `local` for now, and so does a run without an argument.
+
+The test `TestLocal` backs up four revisions of one `snapshot_id` with the mega-doub binary into a storage in a local directory. Two duplicacy CLIs, the upstream release and the patched build of update-graves, restore each revision into an empty directory, and the result is compared with the backed up tree: paths, types, modes, sizes, times of files, SHA256 and targets of links.
+
+Both kinds of prune are checked: a prune of mega-doub that finds nothing to delete among fresh revisions, and an exclusive prune of one revision by the patched CLI, after which the other revisions restore, `duplicacy check -a` of both CLIs passes and mega-doub still backs up and prunes.
+
+The binary comes from `MEGA_DOUB_BIN`, an absolute path, or the test builds it. The script takes `GOPROXY` and `GONOSUMDB` from `scripts/module-proxy.sh` and the CLIs from `scripts/tests/integration-tools.sh`, which downloads them once into `${RUNNER_TEMP:-/tmp}/mega-doub-it-tools` and checks their SHA256 at every run.
+
+The output goes through gotestsum in the format `testdox`, or `github-actions` when `GITHUB_ACTIONS=true`, followed by a summary of the files, the bytes, the new chunks and the times of the backups and the restores. `MEGA_DOUB_IT_DEMO=1` also prints the output of mega-doub with its progress bars as lines of text to the terminal `/dev/tty`; without a terminal the tests run as usual.
+
+The tests run only on Linux x86-64, because both downloaded duplicacy CLIs are linux/amd64 builds.
+
+The tests need Go of the version in `golang/go.mod`, `git` with the history of the repository, `curl`, `tar` with `xz` support, `sha256sum`, GNU `mktemp`, `stat`, `mv`, `realpath`, `dirname` and `flock`, bash 4.1 or newer for the redirection `exec {lock}>`, and the network for the downloads of the CLIs, of gotestsum and of `go mod download`.
+
+Like `scripts/module-proxy.sh`, the scripts refuse a `RUNNER_TEMP` that is not an absolute path of ASCII letters, digits, `/`, `.`, `_` and `-`. The caches and the summary file go into `${RUNNER_TEMP:-/tmp}`, whose path must belong to root or the current user and must not be writable by the group or by others unless the sticky bit is set.
+
+The revision trees (about 74 MB each), the local storage, the state and the restored trees go into the temporary directory of Go: `TMPDIR`, or `/tmp` without it. To use another disk for them, set `TMPDIR`.
+
+The tests do not change the clock: the rules of `prune.keep` by the age of the revisions are not checked.
+
+```bash
+scripts/tests/integration.sh local
+MEGA_DOUB_IT_DEMO=1 scripts/tests/integration.sh local
+```
 
 ## Usage
 
@@ -149,4 +176,4 @@ The output masks the secrets: a non-empty `plain:` reference and a value without
 - `4` – interrupted by a signal before or during the command, or stopped by `global.timeout` during `init`, `backup` or `prune`;
 - `1`, `5` and `6` are reserved for the failures of the sources, of the protection and of the verification and are not returned yet.
 
-<!-- cspell:ignore acd dependabot doub duplicacy evn flock gcd gcs gofmt gonoproxy gonosumdb goprivate goproxy hubic ldflags mapfile minio minios mktemp odb sftpc smb storj testdata wasabi webdav -->
+<!-- cspell:ignore acd dependabot doub duplicacy evn flock gcd gcs gofmt gonoproxy gonosumdb goprivate goproxy gotestsum hubic ldflags mapfile minio minios mktemp odb sftpc smb storj testdata testdox wasabi webdav -->
